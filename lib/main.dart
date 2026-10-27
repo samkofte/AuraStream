@@ -700,37 +700,48 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _SpotifyFullPlayer(
-        song: _currentSong!,
-        audioPlayer: _audioPlayer,
-        isPlaying: _isPlaying,
-        isBuffering: _isBuffering,
-        isShuffle: _isShuffle,
-        loopMode: _loopMode,
-        position: _position,
-        totalDuration: _totalDuration,
-        queue: _queue,
-        currentQueueIndex: _currentQueueIndex,
-        onTogglePlay: _togglePlayPause,
-        onNext: _playNext,
-        onPrev: _playPrevious,
-        onToggleShuffle: () {
-          setState(() => _isShuffle = !_isShuffle);
-        },
-        onToggleLoop: () {
-          setState(() {
-            _loopMode = _loopMode == LoopMode.off
-                ? LoopMode.all
-                : (_loopMode == LoopMode.all ? LoopMode.one : LoopMode.off);
-            _audioPlayer.setLoopMode(_loopMode);
-          });
-        },
-        onAddToPlaylist: () => _showAddToPlaylistDialog(_currentSong!),
-        onDownload: (isCache) =>
-            _downloadOrCacheSong(_currentSong!, isOfflineCache: isCache),
-        onPlayVideoBackground: () =>
-            _playSong(_currentSong!, isVideo: true),
-      ),
+      builder: (ctx) {
+        return StreamBuilder<Duration>(
+          stream: _audioPlayer.positionStream,
+          builder: (context, snapshot) {
+            final currentPos = snapshot.data ?? _position;
+            final currentDur = _audioPlayer.duration ?? _totalDuration;
+            final isCurrentlyPlaying = _audioPlayer.playing;
+
+            return _SpotifyFullPlayer(
+              song: _currentSong!,
+              audioPlayer: _audioPlayer,
+              isPlaying: isCurrentlyPlaying,
+              isBuffering: _isBuffering,
+              isShuffle: _isShuffle,
+              loopMode: _loopMode,
+              position: currentPos,
+              totalDuration: currentDur,
+              queue: _queue,
+              currentQueueIndex: _currentQueueIndex,
+              onTogglePlay: _togglePlayPause,
+              onNext: _playNext,
+              onPrev: _playPrevious,
+              onToggleShuffle: () {
+                setState(() => _isShuffle = !_isShuffle);
+              },
+              onToggleLoop: () {
+                setState(() {
+                  _loopMode = _loopMode == LoopMode.off
+                      ? LoopMode.all
+                      : (_loopMode == LoopMode.all ? LoopMode.one : LoopMode.off);
+                  _audioPlayer.setLoopMode(_loopMode);
+                });
+              },
+              onAddToPlaylist: () => _showAddToPlaylistDialog(_currentSong!),
+              onDownload: (isCache) =>
+                  _downloadOrCacheSong(_currentSong!, isOfflineCache: isCache),
+              onPlayVideoBackground: () =>
+                  _playSong(_currentSong!, isVideo: true),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -906,11 +917,9 @@ class _SearchTabState extends State<_SearchTab> {
       return;
     }
 
-    _fetchAutocompleteSuggestions(query.trim());
-
-    // Her harf yazıldığında gecikmeden (150ms) anlık arama yap
-    _debounceTimer = Timer(const Duration(milliseconds: 150), () {
-      _performSearch(query.trim(), isLiveDebounce: true);
+    // Anlık aramayı kaldırdık, sadece kelime önerileri (chips) anlık çıkar
+    _debounceTimer = Timer(const Duration(milliseconds: 200), () {
+      _fetchAutocompleteSuggestions(query.trim());
     });
   }
 
