@@ -261,10 +261,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     });
   }
 
-  // Pure Client-Side Direct Stream Resolver (Web'de local proxy, Mobilde doğrudan YouTube CDN)
+  // Client-Side Stream Resolver (Web'de proxy, Mobilde doğrudan YouTube CDN)
   Future<String?> _resolveStreamUrl(String videoId, {bool isVideo = false}) async {
     if (kIsWeb) {
-      return "http://127.0.0.1:5050/audio/$videoId";
+      return isVideo
+          ? "http://127.0.0.1:5050/download_video_max/$videoId"
+          : "http://127.0.0.1:5050/audio/$videoId";
     }
     try {
       final manifest =
@@ -917,9 +919,13 @@ class _SearchTabState extends State<_SearchTab> {
       return;
     }
 
-    // Anlık aramayı kaldırdık, sadece kelime önerileri (chips) anlık çıkar
+    // Arama kutusunda yazı varsa önerileri getir
     _debounceTimer = Timer(const Duration(milliseconds: 200), () {
-      _fetchAutocompleteSuggestions(query.trim());
+      if (_searchController.text.trim().isNotEmpty) {
+        _fetchAutocompleteSuggestions(_searchController.text.trim());
+      } else {
+        setState(() => _suggestions = []);
+      }
     });
   }
 
@@ -1141,8 +1147,8 @@ class _SearchTabState extends State<_SearchTab> {
             ],
           ),
         ),
-        // Canlı Öneriler (Arama çubuğunun hemen altında yatay chip olarak gösterilir, listeyi kapatmaz)
-        if (_suggestions.isNotEmpty)
+        // Canlı Öneriler (Sadece arama kutusunda yazı varken gösterilir, metin silinince anında kaybolur)
+        if (_searchController.text.trim().isNotEmpty && _suggestions.isNotEmpty)
           Container(
             height: 38,
             margin: const EdgeInsets.only(bottom: 8),
