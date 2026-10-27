@@ -633,9 +633,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         content: TextField(
           controller: controller,
           autofocus: true,
+          style: const TextStyle(color: Colors.white, fontSize: 15),
+          textAlignVertical: TextAlignVertical.center,
           decoration: const InputDecoration(
             hintText: 'Çalma listesi adı...',
             hintStyle: TextStyle(color: Colors.white38),
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(vertical: 10),
             border: UnderlineInputBorder(
               borderSide: BorderSide(color: Color(0xFF1DB954)),
             ),
@@ -1041,6 +1045,7 @@ class _SearchTabState extends State<_SearchTab> {
               ),
               const SizedBox(height: 16),
               Container(
+                height: 52,
                 decoration: BoxDecoration(
                   color: const Color(0xFF24242E),
                   borderRadius: BorderRadius.circular(12),
@@ -1052,42 +1057,51 @@ class _SearchTabState extends State<_SearchTab> {
                     )
                   ],
                 ),
-                child: TextField(
-                  controller: _searchController,
-                  focusNode: _focusNode,
-                  style: const TextStyle(color: Colors.white),
-                  onChanged: _onSearchChanged,
-                  onSubmitted: (val) => _performSearch(val),
-                  textInputAction: TextInputAction.search,
-                  decoration: InputDecoration(
-                    hintText: 'Şarkı, sanatçı veya video ara...',
-                    hintStyle: const TextStyle(color: Colors.white38),
-                    prefixIcon: IconButton(
-                      icon: const Icon(Icons.search, color: Color(0xFF1DB954)),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.search, color: Color(0xFF1DB954), size: 24),
                       onPressed: () => _performSearch(_searchController.text),
                     ),
-                    suffixIcon: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (_searchController.text.isNotEmpty)
-                          IconButton(
-                            icon: const Icon(Icons.close, color: Colors.white38, size: 20),
-                            onPressed: () {
-                              _searchController.clear();
-                              _onSearchChanged('');
-                            },
-                          ),
-                        IconButton(
-                          icon: const Icon(Icons.arrow_forward_rounded, color: Color(0xFF1DB954)),
-                          tooltip: 'Ara',
-                          onPressed: () => _performSearch(_searchController.text),
+                    Expanded(
+                      child: TextField(
+                        controller: _searchController,
+                        focusNode: _focusNode,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
                         ),
-                      ],
+                        textAlignVertical: TextAlignVertical.center,
+                        onChanged: _onSearchChanged,
+                        onSubmitted: (val) => _performSearch(val),
+                        textInputAction: TextInputAction.search,
+                        decoration: const InputDecoration(
+                          hintText: 'Şarkı, sanatçı veya video ara...',
+                          hintStyle: TextStyle(
+                            color: Colors.white38,
+                            fontSize: 15,
+                          ),
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(vertical: 14),
+                        ),
+                      ),
                     ),
-                    border: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 14),
-                  ),
+                    if (_searchController.text.isNotEmpty)
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white38, size: 20),
+                        onPressed: () {
+                          _searchController.clear();
+                          _onSearchChanged('');
+                        },
+                      ),
+                    IconButton(
+                      icon: const Icon(Icons.arrow_forward_rounded, color: Color(0xFF1DB954), size: 24),
+                      tooltip: 'Ara',
+                      onPressed: () => _performSearch(_searchController.text),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -1251,28 +1265,32 @@ class _SpotifySongCard extends StatelessWidget {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // İndir Butonu (Yeşil Vurgulu, Kolay Tıklanabilir)
-                IconButton(
-                  icon: const Icon(Icons.arrow_circle_down_rounded,
-                      color: Color(0xFF1DB954), size: 26),
-                  tooltip: 'Telefona İndir',
-                  padding: const EdgeInsets.all(8),
-                  constraints: const BoxConstraints(),
-                  onPressed: onDownload,
+                // MYT Tarzı MP3 İndir Butonu (Kırmızı)
+                _MytMiniButton(
+                  label: 'MP3',
+                  color: const Color(0xFFFF2A55),
+                  icon: Icons.music_note,
+                  onTap: onDownload,
+                ),
+                const SizedBox(width: 6),
+                // MYT Tarzı Video İndir Butonu (Mavi)
+                _MytMiniButton(
+                  label: 'VİDEO',
+                  color: const Color(0xFF00E5FF),
+                  icon: Icons.videocam,
+                  onTap: onDownloadVideo,
                 ),
                 const SizedBox(width: 4),
-                // 3 Nokta Menüsü (Kolay Tıklanabilir Geniş Alan)
+                // Diğer İşlemler (3 Nokta)
                 PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert, color: Colors.white70, size: 22),
-                  padding: const EdgeInsets.all(8),
+                  icon: const Icon(Icons.more_vert, color: Colors.white54, size: 20),
+                  padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(),
                   color: const Color(0xFF24242E),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                   onSelected: (val) {
                     if (val == 'cache') onCache();
-                    if (val == 'download') onDownload();
-                    if (val == 'download_vid') onDownloadVideo();
                     if (val == 'playlist') onAddToPlaylist();
                     if (val == 'queue') onAddToQueue();
                     if (val == 'video_bg') onPlayVideoBackground();
@@ -1319,16 +1337,6 @@ class _SpotifySongCard extends StatelessWidget {
                         ],
                       ),
                     ),
-                    const PopupMenuItem(
-                      value: 'download_vid',
-                      child: Row(
-                        children: [
-                          Icon(Icons.download, color: Colors.orange, size: 18),
-                          SizedBox(width: 10),
-                          Text('720p HD Video İndir'),
-                        ],
-                      ),
-                    ),
                   ],
                 ),
               ],
@@ -1346,6 +1354,52 @@ class _SpotifySongCard extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _MytMiniButton extends StatelessWidget {
+  final String label;
+  final Color color;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _MytMiniButton({
+    required this.label,
+    required this.color,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: color.withValues(alpha: 0.6), width: 1),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: color),
+            const SizedBox(width: 3),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
