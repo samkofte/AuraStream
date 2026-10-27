@@ -884,19 +884,28 @@ class _SearchTabState extends State<_SearchTab> {
       return;
     }
 
-    _debounceTimer = Timer(const Duration(milliseconds: 250), () {
+    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
       _fetchAutocompleteSuggestions(query.trim());
+      // Kullanıcı yazarken aynı zamanda sonuçları da otomatik ara
+      _performSearch(query.trim(), isLiveDebounce: true);
     });
   }
 
   Future<void> _fetchAutocompleteSuggestions(String query) async {
     try {
       final encoded = Uri.encodeComponent(query);
-      final url = Uri.parse(
-          'https://suggestqueries-clients6.youtube.com/complete/search?client=youtube&ds=yt&q=$encoded');
+      final url = kIsWeb
+          ? Uri.parse('http://127.0.0.1:5050/suggest?q=$encoded')
+          : Uri.parse(
+              'https://suggestqueries-clients6.youtube.com/complete/search?client=youtube&ds=yt&q=$encoded');
       final res = await http.get(url);
       if (res.statusCode == 200) {
         final body = res.body;
+        if (kIsWeb) {
+          final List<dynamic> list = jsonDecode(body);
+          if (mounted) setState(() => _suggestions = list.map((e) => e.toString()).toList());
+          return;
+        }
         final startIndex = body.indexOf('(');
         final endIndex = body.lastIndexOf(')');
         if (startIndex != -1 && endIndex != -1) {
@@ -917,13 +926,17 @@ class _SearchTabState extends State<_SearchTab> {
     } catch (_) {}
   }
 
-  Future<void> _performSearch(String query) async {
+  Future<void> _performSearch(String query, {bool isLiveDebounce = false}) async {
     if (query.trim().isEmpty) return;
-    _focusNode.unfocus();
+    if (!isLiveDebounce) {
+      _focusNode.unfocus();
+    }
     setState(() {
       _isLoadingSearch = true;
       _activeQuery = query;
-      _suggestions = [];
+      if (!isLiveDebounce) {
+        _suggestions = [];
+      }
     });
 
     try {
@@ -1041,22 +1054,33 @@ class _SearchTabState extends State<_SearchTab> {
                   focusNode: _focusNode,
                   style: const TextStyle(color: Colors.white),
                   onChanged: _onSearchChanged,
-                  onSubmitted: _performSearch,
+                  onSubmitted: (val) => _performSearch(val),
+                  textInputAction: TextInputAction.search,
                   decoration: InputDecoration(
-                    hintText: 'Şarkı veya video ara...',
+                    hintText: 'Şarkı, sanatçı veya video ara...',
                     hintStyle: const TextStyle(color: Colors.white38),
-                    prefixIcon:
-                        const Icon(Icons.search, color: Color(0xFF1DB954)),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.close,
-                                color: Colors.white38),
+                    prefixIcon: IconButton(
+                      icon: const Icon(Icons.search, color: Color(0xFF1DB954)),
+                      onPressed: () => _performSearch(_searchController.text),
+                    ),
+                    suffixIcon: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (_searchController.text.isNotEmpty)
+                          IconButton(
+                            icon: const Icon(Icons.close, color: Colors.white38, size: 20),
                             onPressed: () {
                               _searchController.clear();
                               _onSearchChanged('');
                             },
-                          )
-                        : null,
+                          ),
+                        IconButton(
+                          icon: const Icon(Icons.arrow_forward_rounded, color: Color(0xFF1DB954)),
+                          tooltip: 'Ara',
+                          onPressed: () => _performSearch(_searchController.text),
+                        ),
+                      ],
+                    ),
                     border: InputBorder.none,
                     contentPadding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 14),
@@ -1211,16 +1235,21 @@ class _SpotifySongCard extends StatelessWidget {
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Sade Tek Tıkla İndirme Butonu (Spotify Tarzı)
+                // İndir Butonu (Yeşil Vurgulu, Kolay Tıklanabilir)
                 IconButton(
                   icon: const Icon(Icons.arrow_circle_down_rounded,
-                      color: Colors.white70, size: 24),
-                  tooltip: 'İndir',
+                      color: Color(0xFF1DB954), size: 26),
+                  tooltip: 'Telefona İndir',
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(),
                   onPressed: onDownload,
                 ),
-                // 3 Nokta Menüsü (Diğer tüm detaylar burada)
+                const SizedBox(width: 4),
+                // 3 Nokta Menüsü (Kolay Tıklanabilir Geniş Alan)
                 PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert, color: Colors.white54, size: 20),
+                  icon: const Icon(Icons.more_vert, color: Colors.white70, size: 22),
+                  padding: const EdgeInsets.all(8),
+                  constraints: const BoxConstraints(),
                   color: const Color(0xFF24242E),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
