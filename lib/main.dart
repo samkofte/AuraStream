@@ -880,13 +880,16 @@ class _SearchTabState extends State<_SearchTab> {
     if (query.trim().isEmpty) {
       setState(() {
         _suggestions = [];
+        _activeQuery = '';
       });
+      _performSearch('Trend Türkçe Pop Şarkılar 2026');
       return;
     }
 
-    _debounceTimer = Timer(const Duration(milliseconds: 300), () {
-      _fetchAutocompleteSuggestions(query.trim());
-      // Kullanıcı yazarken aynı zamanda sonuçları da otomatik ara
+    _fetchAutocompleteSuggestions(query.trim());
+
+    // Her harf yazıldığında gecikmeden (150ms) anlık arama yap
+    _debounceTimer = Timer(const Duration(milliseconds: 150), () {
       _performSearch(query.trim(), isLiveDebounce: true);
     });
   }
@@ -1090,35 +1093,48 @@ class _SearchTabState extends State<_SearchTab> {
             ],
           ),
         ),
+        // Canlı Öneriler (Arama çubuğunun hemen altında yatay chip olarak gösterilir, listeyi kapatmaz)
         if (_suggestions.isNotEmpty)
-          Expanded(
+          Container(
+            height: 38,
+            margin: const EdgeInsets.only(bottom: 8),
             child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               itemCount: _suggestions.length,
               itemBuilder: (ctx, index) {
                 final suggestion = _suggestions[index];
-                return ListTile(
-                  leading: const Icon(Icons.history, color: Colors.white38),
-                  title: Text(
-                    suggestion,
-                    style: const TextStyle(color: Colors.white, fontSize: 15),
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ActionChip(
+                    backgroundColor: const Color(0xFF24242E),
+                    side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    avatar: const Icon(Icons.search, size: 14, color: Color(0xFF1DB954)),
+                    label: Text(
+                      suggestion,
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                    onPressed: () {
+                      _searchController.text = suggestion;
+                      _performSearch(suggestion);
+                    },
                   ),
-                  trailing: const Icon(Icons.north_west,
-                      color: Colors.white24, size: 18),
-                  onTap: () {
-                    _searchController.text = suggestion;
-                    _performSearch(suggestion);
-                  },
                 );
               },
             ),
-          )
-        else if (_isLoadingSearch)
-          const Expanded(
-            child: Center(
-              child: CircularProgressIndicator(color: Color(0xFF1DB954)),
-            ),
-          )
-        else if (_searchResults.isNotEmpty)
+          ),
+
+        // Yükleniyor Göstergesi (Kompakt üst bar şeklinde, şarkı listesini yok etmez)
+        if (_isLoadingSearch)
+          const LinearProgressIndicator(
+            backgroundColor: Colors.transparent,
+            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1DB954)),
+            minHeight: 2,
+          ),
+
+        // Şarkı Listesi - Her harfte anlık olarak güncellenir ve asla kapanmaz
+        if (_searchResults.isNotEmpty)
           Expanded(
             child: ListView.builder(
               itemCount: _searchResults.length,
@@ -1141,7 +1157,7 @@ class _SearchTabState extends State<_SearchTab> {
               },
             ),
           )
-        else
+        else if (!_isLoadingSearch)
           Expanded(
             child: Center(
               child: Column(
