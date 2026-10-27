@@ -1,6 +1,7 @@
 import json
 import subprocess
 import requests
+import urllib.parse
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 import yt_dlp
@@ -118,9 +119,10 @@ def download_audio_max(video_id):
             ext = info.get('ext', 'm4a')
 
         req = requests.get(stream_url, headers=http_headers, stream=True, allow_redirects=True, timeout=20)
+        encoded_title = urllib.parse.quote(f"{title}.{ext}")
         resp_headers = {
             'Content-Type': 'application/octet-stream',
-            'Content-Disposition': f'attachment; filename="{title}.{ext}"',
+            'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_title}",
             'Access-Control-Allow-Origin': '*',
         }
         return Response(
@@ -144,9 +146,10 @@ def download_video_max(video_id):
             title = info.get('title', 'video').replace('/', '_').replace('\\', '_').replace('"', '')
 
         req = requests.get(stream_url, headers=http_headers, stream=True, allow_redirects=True, timeout=25)
+        encoded_title = urllib.parse.quote(f"{title} [720p HD].mp4")
         resp_headers = {
             'Content-Type': 'video/mp4',
-            'Content-Disposition': f'attachment; filename="{title} [720p HD].mp4"',
+            'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_title}",
             'Access-Control-Allow-Origin': '*',
         }
         return Response(
@@ -211,9 +214,10 @@ def download_mp3(video_id):
             proc.stdout.close()
             t.join()
 
+        encoded_title = urllib.parse.quote(f"{title}.mp3")
         resp_headers = {
             'Content-Type': 'audio/mpeg',
-            'Content-Disposition': f'attachment; filename="{title}.mp3"',
+            'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_title}",
             'Access-Control-Allow-Origin': '*',
         }
         return Response(stream_with_context(generate_mp3()), headers=resp_headers)
