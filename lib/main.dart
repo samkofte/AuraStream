@@ -439,7 +439,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             ? 'Önbelleğe indiriliyor: ${song.title}...'
             : (isVideo
                 ? 'Video indiriliyor: ${song.title}...'
-                : 'Telefona indiriliyor: ${song.title}...')),
+                : 'MP3/Ses indiriliyor: ${song.title}...')),
         duration: const Duration(seconds: 2),
         backgroundColor: const Color(0xFF1DB954),
       ),
@@ -447,20 +447,37 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
     try {
       if (kIsWeb) {
-        final streamUrl =
-            await _resolveStreamUrl(song.id, isVideo: isVideo);
-        if (streamUrl != null) {
-          final anchor =
-              web.document.createElement('a') as web.HTMLAnchorElement;
-          anchor.href = streamUrl;
-          anchor.download =
-              isVideo ? '${song.title}.mp4' : '${song.title}.m4a';
-          anchor.target = '_blank';
-          web.document.body?.appendChild(anchor);
-          anchor.click();
-          anchor.remove();
-        }
+        // Web tarayıcısında gerçek dosya indirmesi (attachment) tetikle
+        final downloadUrl = isVideo
+            ? 'http://127.0.0.1:5050/download_video_max/${song.id}'
+            : 'http://127.0.0.1:5050/download_audio_max/${song.id}';
+
+        final anchor =
+            web.document.createElement('a') as web.HTMLAnchorElement;
+        anchor.href = downloadUrl;
+        anchor.download = isVideo ? '${song.title}.mp4' : '${song.title}.m4a';
+        web.document.body?.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+
+        // Web'de de indirme listesine anında kaydet
+        final downloadedItem = SongItem(
+          id: song.id,
+          title: song.title,
+          artist: song.artist,
+          duration: song.duration,
+          thumbnailUrl: song.thumbnailUrl,
+          format: isVideo ? '720p HD Video' : 'MAX Ses / MP3',
+          downloadDate: DateTime.now(),
+        );
+
+        setState(() {
+          _downloadedSongs.removeWhere((s) => s.id == song.id);
+          _downloadedSongs.insert(0, downloadedItem);
+        });
+        await _saveDownloads();
       } else {
+        // Telefon (Android/iOS): Sıfır sunucu, tamamen telefonda doğrudan indirme
         final manifest =
             await _ytExplode.videos.streamsClient.getManifest(song.id);
         final streamInfo = isVideo
@@ -518,7 +535,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           thumbnailUrl: song.thumbnailUrl,
           format: isOfflineCache
               ? 'Önbellek (Offline)'
-              : (isVideo ? '720p HD MP4' : 'MAX SES (Telefon)'),
+              : (isVideo ? '720p HD Video' : 'MAX Ses / MP3'),
           localFilePath: filePath,
           downloadDate: DateTime.now(),
         );
