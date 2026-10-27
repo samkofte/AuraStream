@@ -13,7 +13,6 @@ FFMPEG_PATH = r"C:\Users\pc\Downloads\LosslessCut-win-x64\resources\ffmpeg.exe"
 YDL_BASE_OPTS = {
     'quiet': True,
     'no_warnings': True,
-    'format': 'bestaudio/best',
     'extractor_args': {'youtube': {'player_client': ['android', 'ios']}}
 }
 
@@ -38,7 +37,7 @@ def suggest():
         print("Suggest error:", e)
     return jsonify([])
 
-# 2. MÜZİK ARAMASI
+# 2. MÜZİK VE VİDEO ARAMASI (InnerTube)
 @app.route('/search')
 def search():
     q = request.args.get('q', '')
@@ -68,11 +67,12 @@ def search():
         print("Search error:", e)
         return jsonify([])
 
-# 3. İLERİ / GERİ SARILABİLİR SES OYNATICI
+# 3. MAKSİMUM KALİTEDE SES AKIŞI (Oynatma - 160 kbps / En Yüksek Kalite)
 @app.route('/audio/<video_id>')
 def audio_stream(video_id):
     try:
         opts = dict(YDL_BASE_OPTS)
+        opts['format'] = 'bestaudio/best'
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
             stream_url = info.get('url')
@@ -104,11 +104,12 @@ def audio_stream(video_id):
         print("Audio stream error:", e)
         return jsonify({'error': str(e)}), 500
 
-# 4. HIZLI ORİJİNAL M4A İNDİRME
-@app.route('/download/<video_id>')
-def download_m4a(video_id):
+# 4. MAKSİMUM SES İNDİRME (160 kbps Doğrudan En Yüksek Kalite)
+@app.route('/download_audio_max/<video_id>')
+def download_audio_max(video_id):
     try:
         opts = dict(YDL_BASE_OPTS)
+        opts['format'] = 'bestaudio/best'
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
             stream_url = info.get('url')
@@ -129,21 +130,46 @@ def download_m4a(video_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-# 5. GERÇEK MP3 DÖNÜŞTÜRÜCÜ İNDİRME (FFMPEG LAME MP3 320 KBPS)
+# 5. MAKSİMUM VİDEO İNDİRME (720p HD Sesli MP4)
+@app.route('/download_video_max/<video_id>')
+def download_video_max(video_id):
+    try:
+        opts = dict(YDL_BASE_OPTS)
+        # Ekstra işlem gerektirmeden en yüksek sesli video (720p HD MP4)
+        opts['format'] = 'best[ext=mp4]/best'
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            stream_url = info.get('url')
+            http_headers = info.get('http_headers', {'User-Agent': 'Mozilla/5.0'})
+            title = info.get('title', 'video').replace('/', '_').replace('\\', '_').replace('"', '')
+
+        req = requests.get(stream_url, headers=http_headers, stream=True, allow_redirects=True, timeout=25)
+        resp_headers = {
+            'Content-Type': 'video/mp4',
+            'Content-Disposition': f'attachment; filename="{title} [720p HD].mp4"',
+            'Access-Control-Allow-Origin': '*',
+        }
+        return Response(
+            stream_with_context(req.iter_content(chunk_size=262144)),
+            headers=resp_headers
+        )
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# 6. GERÇEK 320 KBPS MP3 İNDİRME
 @app.route('/download_mp3/<video_id>')
 def download_mp3(video_id):
     try:
         opts = dict(YDL_BASE_OPTS)
+        opts['format'] = 'bestaudio/best'
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
             stream_url = info.get('url')
             http_headers = info.get('http_headers', {'User-Agent': 'Mozilla/5.0'})
             title = info.get('title', 'music').replace('/', '_').replace('\\', '_').replace('"', '')
 
-        # YouTube ses akışını alıp doğrudan FFmpeg'e boruluyoruz
         req = requests.get(stream_url, headers=http_headers, stream=True, allow_redirects=True, timeout=20)
         
-        # FFmpeg ile anlık saf MP3 çıktısı alıyoruz (pipe:0 -> pipe:1)
         ffmpeg_cmd = [
             FFMPEG_PATH,
             '-hide_banner',
@@ -174,7 +200,6 @@ def download_mp3(video_id):
                 except Exception as e:
                     print("Feed input error:", e)
 
-            # Giriş beslemesini ayrı thread'de çalıştırıp çıkışı eşzamanlı aktar
             t = threading.Thread(target=feed_input)
             t.start()
 
@@ -197,5 +222,5 @@ def download_mp3(video_id):
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    print("MP3 Pro Music Proxy Server running on port 5050...")
+    print("AuraStream Max Quality Proxy Server running on port 5050...")
     app.run(host='127.0.0.1', port=5050, debug=False, threaded=True)

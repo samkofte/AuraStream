@@ -16,7 +16,7 @@ class AuraStreamApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'AuraStream - Music Player',
+      title: 'AuraStream - Max Quality Music & Video',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0F0F13),
@@ -24,6 +24,7 @@ class AuraStreamApp extends StatelessWidget {
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFFFF2A55),
           secondary: Color(0xFF00E5FF),
+          tertiary: Color(0xFF7928CA),
           surface: Color(0xFF181820),
         ),
       ),
@@ -47,7 +48,7 @@ class SongItem {
     required this.artist,
     required this.duration,
     required this.thumbnailUrl,
-    this.format = 'MP3',
+    this.format = 'MP3 320K',
     this.downloadDate,
   });
 
@@ -115,7 +116,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     super.dispose();
   }
 
-  // Şarkı Çalma
+  // Şarkı Çalma (En yüksek ses akışı)
   Future<void> _playSong(SongItem song) async {
     setState(() {
       _currentSong = song;
@@ -148,10 +149,30 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     }
   }
 
-  // MP3 veya M4A İndirme Motoru
-  void _downloadSong(SongItem song, {bool asMp3 = true}) {
-    final endpoint = asMp3 ? "download_mp3" : "download";
-    final ext = asMp3 ? "mp3" : "m4a";
+  // Çoklu Format İndirme Motoru (MP3 320K, MAX Ses, 720p HD Video)
+  void _downloadSong(SongItem song, String type) {
+    String endpoint;
+    String ext;
+    String label;
+    Color notifColor;
+
+    if (type == 'video') {
+      endpoint = "download_video_max";
+      ext = "mp4";
+      label = "720p HD Video";
+      notifColor = const Color(0xFF7928CA);
+    } else if (type == 'max_audio') {
+      endpoint = "download_audio_max";
+      ext = "m4a";
+      label = "MAX Ses (160K)";
+      notifColor = const Color(0xFF00E5FF);
+    } else {
+      endpoint = "download_mp3";
+      ext = "mp3";
+      label = "MP3 (320K)";
+      notifColor = const Color(0xFFFF2A55);
+    }
+
     final downloadUrl = "$_apiBase/$endpoint/${song.id}";
 
     if (kIsWeb) {
@@ -172,7 +193,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           artist: song.artist,
           duration: song.duration,
           thumbnailUrl: song.thumbnailUrl,
-          format: ext.toUpperCase(),
+          format: label,
           downloadDate: DateTime.now(),
         ),
       );
@@ -180,9 +201,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        backgroundColor: asMp3 ? const Color(0xFFFF2A55) : const Color(0xFF00E5FF),
+        backgroundColor: notifColor,
         content: Text(
-          "⚡ ${song.title} (${ext.toUpperCase()}) olarak indiriliyor! İndirme listesine eklendi.",
+          "⚡ ${song.title} [$label] olarak indiriliyor!",
           style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         duration: const Duration(seconds: 3),
@@ -226,13 +247,25 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               'AuraStream',
               style: TextStyle(fontWeight: FontWeight.w900, fontSize: 20, letterSpacing: 0.5),
             ),
+            const Spacer(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: const Text(
+                'MAX QUALITY',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF00DFD8)),
+              ),
+            ),
           ],
         ),
       ),
       body: IndexedStack(
         index: _currentTabIndex,
         children: [
-          // SEKME 1: CANLI ARAMA VE KEŞFET
           ExploreSearchTab(
             apiBase: _apiBase,
             currentSong: _currentSong,
@@ -240,8 +273,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             onPlay: _playSong,
             onDownload: _downloadSong,
           ),
-
-          // SEKME 2: İNDİRME LİSTESİ
           DownloadsTab(
             downloadedSongs: _downloadedSongs,
             currentSong: _currentSong,
@@ -258,10 +289,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // GELİŞMİŞ İLERİ/GERİ SARILABİLİR OYNATICI
           if (_currentSong != null) _buildEnhancedPlayerBar(),
-
-          // ALT GEZİNME ÇUBUĞU
           NavigationBar(
             selectedIndex: _currentTabIndex,
             onDestinationSelected: (idx) => setState(() => _currentTabIndex = idx),
@@ -306,7 +334,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // SÜRE KAYDIRICI (SEEK BAR)
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
@@ -328,7 +355,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               },
             ),
           ),
-
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Row(
@@ -378,7 +404,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   ),
                 ),
                 const SizedBox(width: 10),
-
                 IconButton(
                   icon: const Icon(Icons.replay_10_rounded, color: Colors.white70, size: 26),
                   tooltip: '10 Saniye Geri',
@@ -413,14 +438,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 }
 
 // ----------------------------------------------------
-// SEKME 1: KEŞFET & ANLIK CANLI ARAMA
+// SEKME 1: KEŞFET & ARAMA
 // ----------------------------------------------------
 class ExploreSearchTab extends StatefulWidget {
   final String apiBase;
   final SongItem? currentSong;
   final bool isPlaying;
   final Function(SongItem) onPlay;
-  final Function(SongItem, {bool asMp3}) onDownload;
+  final Function(SongItem, String) onDownload;
 
   const ExploreSearchTab({
     super.key,
@@ -445,7 +470,7 @@ class _ExploreSearchTabState extends State<ExploreSearchTab> {
   @override
   void initState() {
     super.initState();
-    _performSearch("Trend Şarkılar 2026");
+    _performSearch("Trend Müzikler 2026");
   }
 
   @override
@@ -503,7 +528,6 @@ class _ExploreSearchTabState extends State<ExploreSearchTab> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // ARAMA ALANI
         Padding(
           padding: const EdgeInsets.all(12.0),
           child: Container(
@@ -517,7 +541,7 @@ class _ExploreSearchTabState extends State<ExploreSearchTab> {
               onChanged: _onSearchChanged,
               onSubmitted: _performSearch,
               decoration: InputDecoration(
-                hintText: 'Şarkı, sanatçı veya müzik ara...',
+                hintText: 'Şarkı, sanatçı veya video ara...',
                 hintStyle: const TextStyle(color: Colors.grey, fontSize: 14),
                 prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFFFF2A55)),
                 suffixIcon: _searchController.text.isNotEmpty
@@ -536,7 +560,6 @@ class _ExploreSearchTabState extends State<ExploreSearchTab> {
           ),
         ),
 
-        // CANLI ÖNERİLER
         if (_suggestions.isNotEmpty)
           Container(
             margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -565,7 +588,6 @@ class _ExploreSearchTabState extends State<ExploreSearchTab> {
             ),
           ),
 
-        // ŞARKI LİSTESİ
         Expanded(
           child: _isLoading
               ? const Center(
@@ -645,30 +667,51 @@ class _ExploreSearchTabState extends State<ExploreSearchTab> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // ÖZEL MP3 İNDİRME BUTONU (320 KBPS)
-                            ElevatedButton.icon(
-                              icon: const Icon(Icons.file_download_rounded, size: 16),
-                              label: const Text('MP3', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 11)),
+                            // 1. MP3 (320K) İNDİR
+                            ElevatedButton(
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFFFF2A55),
                                 foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 minimumSize: Size.zero,
                                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
                               ),
-                              onPressed: () => widget.onDownload(song, asMp3: true),
+                              onPressed: () => widget.onDownload(song, 'mp3'),
+                              child: const Text('MP3', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 10)),
+                            ),
+                            const SizedBox(width: 4),
+
+                            // 2. MAX SES (160K M4A) İNDİR
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF00E5FF),
+                                foregroundColor: Colors.black,
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              ),
+                              onPressed: () => widget.onDownload(song, 'max_audio'),
+                              child: const Text('MAX SES', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 10)),
+                            ),
+                            const SizedBox(width: 4),
+
+                            // 3. 720p HD VİDEO İNDİR
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF7928CA),
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                              ),
+                              onPressed: () => widget.onDownload(song, 'video'),
+                              child: const Text('720p MP4', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 10)),
                             ),
                             const SizedBox(width: 6),
-                            // HIZLI M4A İNDİRME BUTONU
-                            IconButton(
-                              icon: const Icon(Icons.download_rounded, color: Color(0xFF00E5FF), size: 22),
-                              tooltip: 'Hızlı M4A İndir',
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              onPressed: () => widget.onDownload(song, asMp3: false),
-                            ),
-                            const SizedBox(width: 8),
+
                             // OYNAT BUTONU
                             IconButton(
                               icon: Icon(
@@ -729,7 +772,7 @@ class DownloadsTab extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Arama sekmesinden "MP3" butonuna basarak dilediğiniz şarkıyı indirin.',
+              'Arama sekmesinden MP3, MAX Ses veya 720p Video olarak dilediğiniz medyayı indirin.',
               style: TextStyle(color: Colors.grey, fontSize: 13),
             ),
           ],
@@ -743,6 +786,15 @@ class DownloadsTab extends StatelessWidget {
       itemBuilder: (context, index) {
         final song = downloadedSongs[index];
         final isCurrent = currentSong?.id == song.id;
+
+        Color badgeColor;
+        if (song.format.contains('Video') || song.format.contains('720p')) {
+          badgeColor = const Color(0xFF7928CA);
+        } else if (song.format.contains('MAX')) {
+          badgeColor = const Color(0xFF00E5FF);
+        } else {
+          badgeColor = const Color(0xFFFF2A55);
+        }
 
         return Container(
           margin: const EdgeInsets.symmetric(vertical: 4),
@@ -788,19 +840,14 @@ class DownloadsTab extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                   decoration: BoxDecoration(
-                    color: song.format == 'MP3'
-                        ? const Color(0xFFFF2A55).withOpacity(0.2)
-                        : const Color(0xFF00E5FF).withOpacity(0.2),
+                    color: badgeColor.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(4),
-                    border: Border.all(
-                      color: song.format == 'MP3' ? const Color(0xFFFF2A55) : const Color(0xFF00E5FF),
-                      width: 0.5,
-                    ),
+                    border: Border.all(color: badgeColor, width: 0.5),
                   ),
                   child: Text(
                     song.format,
                     style: TextStyle(
-                      color: song.format == 'MP3' ? const Color(0xFFFF2A55) : const Color(0xFF00E5FF),
+                      color: badgeColor,
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
                     ),
