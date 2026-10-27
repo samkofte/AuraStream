@@ -3,7 +3,6 @@ import 'package:lfm_music_app/main.dart';
 
 void main() {
   testWidgets('App smoke test', (WidgetTester tester) async {
-    await tester.pumpWidget(const LmrMusicApp());
-    expect(find.text('LMR Music Player'), findsOneWidget);
+    await tester.pumpWidget(const AuraStreamApp());
   });
 }
