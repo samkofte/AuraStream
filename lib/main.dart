@@ -1141,7 +1141,7 @@ class _SearchTabState extends State<_SearchTab> {
   }
 }
 
-// ==================== SPOTIFY SONG CARD ====================
+// ==================== SPOTIFY SONG CARD (SADE & TEMİZ) ====================
 class _SpotifySongCard extends StatelessWidget {
   final SongItem song;
   final double? downloadProgress;
@@ -1168,42 +1168,28 @@ class _SpotifySongCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 4),
       decoration: BoxDecoration(
-        color: const Color(0xFF181820),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
         children: [
           ListTile(
-            contentPadding: const EdgeInsets.fromLTRB(12, 6, 8, 0),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             leading: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Image.network(
-                    song.thumbnailUrl,
-                    width: 52,
-                    height: 52,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
-                      width: 52,
-                      height: 52,
-                      color: Colors.grey.shade900,
-                      child:
-                          const Icon(Icons.music_note, color: Colors.white54),
-                    ),
-                  ),
-                  Container(
-                    width: 52,
-                    height: 52,
-                    color: Colors.black26,
-                  ),
-                  const Icon(Icons.play_arrow_rounded,
-                      color: Colors.white, size: 28),
-                ],
+              borderRadius: BorderRadius.circular(6),
+              child: Image.network(
+                song.thumbnailUrl,
+                width: 50,
+                height: 50,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Container(
+                  width: 50,
+                  height: 50,
+                  color: Colors.grey.shade900,
+                  child: const Icon(Icons.music_note, color: Colors.white54),
+                ),
               ),
             ),
             title: Text(
@@ -1211,7 +1197,7 @@ class _SpotifySongCard extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w600,
                 fontSize: 14.5,
                 color: Colors.white,
               ),
@@ -1222,83 +1208,83 @@ class _SpotifySongCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(color: Colors.white54, fontSize: 12),
             ),
-            trailing: PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert, color: Colors.white70),
-              color: const Color(0xFF24242E),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              onSelected: (val) {
-                if (val == 'queue') onAddToQueue();
-                if (val == 'playlist') onAddToPlaylist();
-                if (val == 'video_bg') onPlayVideoBackground();
-                if (val == 'download') onDownload();
-                if (val == 'download_vid') onDownloadVideo();
-                if (val == 'cache') onCache();
-              },
-              itemBuilder: (ctx) => [
-                const PopupMenuItem(
-                  value: 'video_bg',
-                  child: Row(
-                    children: [
-                      Icon(Icons.video_library,
-                          color: Color(0xFF00E5FF), size: 20),
-                      SizedBox(width: 12),
-                      Text('Videoyu Arkada Oynat'),
-                    ],
-                  ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Sade Tek Tıkla İndirme Butonu (Spotify Tarzı)
+                IconButton(
+                  icon: const Icon(Icons.arrow_circle_down_rounded,
+                      color: Colors.white70, size: 24),
+                  tooltip: 'İndir',
+                  onPressed: onDownload,
                 ),
-                const PopupMenuItem(
-                  value: 'queue',
-                  child: Row(
-                    children: [
-                      Icon(Icons.queue_music,
-                          color: Color(0xFF1DB954), size: 20),
-                      SizedBox(width: 12),
-                      Text('Sıraya Ekle'),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'playlist',
-                  child: Row(
-                    children: [
-                      Icon(Icons.playlist_add, color: Colors.amber, size: 20),
-                      SizedBox(width: 12),
-                      Text('Çalma Listesine Ekle'),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'cache',
-                  child: Row(
-                    children: [
-                      Icon(Icons.offline_pin,
-                          color: Color(0xFFFF2A55), size: 20),
-                      SizedBox(width: 12),
-                      Text('Önbelleğe Al (Offline)'),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'download',
-                  child: Row(
-                    children: [
-                      Icon(Icons.phone_android,
-                          color: Color(0xFF1DB954), size: 20),
-                      SizedBox(width: 12),
-                      Text('Telefona İndir (M4A/Max)'),
-                    ],
-                  ),
-                ),
-                const PopupMenuItem(
-                  value: 'download_vid',
-                  child: Row(
-                    children: [
-                      Icon(Icons.download, color: Colors.orange, size: 20),
-                      SizedBox(width: 12),
-                      Text('720p HD Video İndir'),
-                    ],
-                  ),
+                // 3 Nokta Menüsü (Diğer tüm detaylar burada)
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert, color: Colors.white54, size: 20),
+                  color: const Color(0xFF24242E),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                  onSelected: (val) {
+                    if (val == 'cache') onCache();
+                    if (val == 'download') onDownload();
+                    if (val == 'download_vid') onDownloadVideo();
+                    if (val == 'playlist') onAddToPlaylist();
+                    if (val == 'queue') onAddToQueue();
+                    if (val == 'video_bg') onPlayVideoBackground();
+                  },
+                  itemBuilder: (ctx) => [
+                    const PopupMenuItem(
+                      value: 'cache',
+                      child: Row(
+                        children: [
+                          Icon(Icons.offline_pin_outlined,
+                              color: Color(0xFF00E5FF), size: 18),
+                          SizedBox(width: 10),
+                          Text('Önbelleğe Al (Offline Dinle)'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'playlist',
+                      child: Row(
+                        children: [
+                          Icon(Icons.playlist_add, color: Color(0xFF1DB954), size: 18),
+                          SizedBox(width: 10),
+                          Text('Çalma Listesine Ekle'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'queue',
+                      child: Row(
+                        children: [
+                          Icon(Icons.queue_music, color: Colors.white70, size: 18),
+                          SizedBox(width: 10),
+                          Text('Sıraya Ekle'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'video_bg',
+                      child: Row(
+                        children: [
+                          Icon(Icons.video_library_outlined, color: Colors.amber, size: 18),
+                          SizedBox(width: 10),
+                          Text('Videoyu Arkada Oynat'),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'download_vid',
+                      child: Row(
+                        children: [
+                          Icon(Icons.download, color: Colors.orange, size: 18),
+                          SizedBox(width: 10),
+                          Text('720p HD Video İndir'),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -1306,65 +1292,14 @@ class _SpotifySongCard extends StatelessWidget {
           ),
           if (downloadProgress != null)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text('Bildirim çubuğunda indiriliyor...',
-                          style: TextStyle(
-                              color: Color(0xFF1DB954), fontSize: 11)),
-                      Text('%${(downloadProgress! * 100).toInt()}',
-                          style: const TextStyle(
-                              color: Color(0xFF1DB954),
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  LinearProgressIndicator(
-                    value: downloadProgress,
-                    backgroundColor: Colors.white12,
-                    valueColor: const AlwaysStoppedAnimation<Color>(
-                        Color(0xFF1DB954)),
-                    minHeight: 3,
-                  )
-                ],
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+              child: LinearProgressIndicator(
+                value: downloadProgress,
+                backgroundColor: Colors.white12,
+                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF1DB954)),
+                minHeight: 2,
               ),
             ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _ModernActionButton(
-                    icon: Icons.offline_pin_outlined,
-                    label: 'Önbellek',
-                    color: const Color(0xFF00E5FF),
-                    onTap: onCache,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _ModernActionButton(
-                    icon: Icons.phone_android_rounded,
-                    label: 'Telefona İndir',
-                    color: const Color(0xFF1DB954),
-                    onTap: onDownload,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _ModernActionButton(
-                  icon: Icons.video_library_outlined,
-                  label: '',
-                  color: Colors.amber,
-                  onTap: onPlayVideoBackground,
-                ),
-              ],
-            ),
-          )
         ],
       ),
     );
