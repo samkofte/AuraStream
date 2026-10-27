@@ -254,7 +254,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     });
   }
 
+  // Pure Client-Side Direct Stream Resolver (Web'de local proxy, Mobilde doğrudan YouTube CDN)
   Future<String?> _resolveStreamUrl(String videoId, {bool isVideo = false}) async {
+    if (kIsWeb) {
+      return "http://127.0.0.1:5050/audio/$videoId";
+    }
     try {
       final manifest =
           await _ytExplode.videos.streamsClient.getManifest(videoId);
@@ -265,9 +269,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       final audioStream = manifest.audioOnly.withHighestBitrate();
       return audioStream.url.toString();
     } catch (e) {
-      if (kIsWeb) {
-        return "http://127.0.0.1:5050/audio/$videoId";
-      }
       return null;
     }
   }
@@ -309,17 +310,22 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         final streamUrl =
             await _resolveStreamUrl(song.id, isVideo: isVideo);
         if (streamUrl != null) {
-          final audioSource = AudioSource.uri(
-            Uri.parse(streamUrl),
-            tag: MediaItem(
-              id: song.id,
-              album: isVideo ? 'AuraStream Video Sesi' : 'AuraStream Canlı',
-              title: song.title,
-              artist: song.artist,
-              artUri: Uri.tryParse(song.thumbnailUrl),
-            ),
-          );
-          await _audioPlayer.setAudioSource(audioSource);
+          if (kIsWeb) {
+            // Web için doğrudan setUrl en kararlı ve kesintisiz yöntemdir
+            await _audioPlayer.setUrl(streamUrl);
+          } else {
+            final audioSource = AudioSource.uri(
+              Uri.parse(streamUrl),
+              tag: MediaItem(
+                id: song.id,
+                album: isVideo ? 'AuraStream Video Sesi' : 'AuraStream Canlı',
+                title: song.title,
+                artist: song.artist,
+                artUri: Uri.tryParse(song.thumbnailUrl),
+              ),
+            );
+            await _audioPlayer.setAudioSource(audioSource);
+          }
         } else {
           throw Exception("Yayın adresi çözülemedi");
         }
@@ -1045,24 +1051,17 @@ class _SearchTabState extends State<_SearchTab> {
               ),
               const SizedBox(height: 16),
               Container(
-                height: 52,
+                height: 48,
                 decoration: BoxDecoration(
                   color: const Color(0xFF24242E),
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.3),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    )
-                  ],
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.white12),
                 ),
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.search, color: Color(0xFF1DB954), size: 24),
-                      onPressed: () => _performSearch(_searchController.text),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Icon(Icons.search, color: Color(0xFF1DB954), size: 22),
                     ),
                     Expanded(
                       child: TextField(
@@ -1070,34 +1069,38 @@ class _SearchTabState extends State<_SearchTab> {
                         focusNode: _focusNode,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 15,
+                          fontSize: 14,
+                          decoration: TextDecoration.none,
                         ),
                         textAlignVertical: TextAlignVertical.center,
                         onChanged: _onSearchChanged,
                         onSubmitted: (val) => _performSearch(val),
                         textInputAction: TextInputAction.search,
-                        decoration: const InputDecoration(
-                          hintText: 'Şarkı, sanatçı veya video ara...',
-                          hintStyle: TextStyle(
+                        decoration: InputDecoration(
+                          hintText: _searchController.text.isNotEmpty ? null : 'Şarkı, sanatçı veya video ara...',
+                          hintStyle: const TextStyle(
                             color: Colors.white38,
-                            fontSize: 15,
+                            fontSize: 14,
                           ),
                           border: InputBorder.none,
-                          isDense: true,
-                          contentPadding: EdgeInsets.symmetric(vertical: 14),
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          isCollapsed: true,
                         ),
                       ),
                     ),
                     if (_searchController.text.isNotEmpty)
                       IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white38, size: 20),
+                        icon: const Icon(Icons.close, color: Colors.white54, size: 18),
+                        splashRadius: 18,
                         onPressed: () {
                           _searchController.clear();
                           _onSearchChanged('');
                         },
                       ),
                     IconButton(
-                      icon: const Icon(Icons.arrow_forward_rounded, color: Color(0xFF1DB954), size: 24),
+                      icon: const Icon(Icons.arrow_forward_rounded, color: Color(0xFF1DB954), size: 22),
+                      splashRadius: 18,
                       tooltip: 'Ara',
                       onPressed: () => _performSearch(_searchController.text),
                     ),
