@@ -861,6 +861,13 @@ class _SearchTabState extends State<_SearchTab> {
   String _activeQuery = '';
 
   @override
+  void initState() {
+    super.initState();
+    // Uygulama açılır açılmaz en popüler / trend şarkıları hemen listele
+    _performSearch('Trend Türkçe Pop Şarkılar 2026');
+  }
+
+  @override
   void dispose() {
     _debounceTimer?.cancel();
     _searchController.dispose();
