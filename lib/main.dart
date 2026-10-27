@@ -927,20 +927,36 @@ class _SearchTabState extends State<_SearchTab> {
     });
 
     try {
-      final ytExplode = yt.YoutubeExplode();
-      final searchResult = await ytExplode.search.search(query);
-      final items = searchResult.map((video) {
-        return SongItem(
-          id: video.id.value,
-          title: video.title,
-          artist: video.author,
-          duration: video.duration != null
-              ? '${video.duration!.inMinutes}:${(video.duration!.inSeconds % 60).toString().padLeft(2, '0')}'
-              : '--:--',
-          thumbnailUrl: video.thumbnails.mediumResUrl,
-        );
-      }).toList();
-      ytExplode.close();
+      List<SongItem> items = [];
+
+      // Tarayıcıdaysa (Web CORS koruması nedeniyle) proxy veya alternatif endpoint kullan
+      if (kIsWeb) {
+        try {
+          final res = await http.get(Uri.parse('http://127.0.0.1:5050/search?q=${Uri.encodeComponent(query)}'));
+          if (res.statusCode == 200) {
+            final List<dynamic> data = jsonDecode(res.body);
+            items = data.map((json) => SongItem.fromJson(json)).toList();
+          }
+        } catch (_) {}
+      }
+
+      // Eğer mobil cihazdaysa veya doğrudan bağlantı açıksa YoutubeExplode çalıştır
+      if (items.isEmpty) {
+        final ytExplode = yt.YoutubeExplode();
+        final searchResult = await ytExplode.search.search(query);
+        items = searchResult.map((video) {
+          return SongItem(
+            id: video.id.value,
+            title: video.title,
+            artist: video.author,
+            duration: video.duration != null
+                ? '${video.duration!.inMinutes}:${(video.duration!.inSeconds % 60).toString().padLeft(2, '0')}'
+                : '--:--',
+            thumbnailUrl: video.thumbnails.mediumResUrl,
+          );
+        }).toList();
+        ytExplode.close();
+      }
 
       if (mounted) {
         setState(() {
