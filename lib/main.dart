@@ -3,15 +3,45 @@ import 'dart:convert';
 import 'dart:io' as io;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:web/web.dart' as web;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 
-void main() {
+// Local Notification Plugin for Download Progress Tracking
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+    FlutterLocalNotificationsPlugin();
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Background Audio Service Initialization (Only non-web for Android/iOS)
+  if (!kIsWeb) {
+    try {
+      await JustAudioBackground.init(
+        androidNotificationChannelId: 'com.aurastream.music.channel.audio',
+        androidNotificationChannelName: 'AuraStream Müzik & Video Yayını',
+        androidNotificationOngoing: true,
+        androidStopForegroundOnPause: true,
+      );
+
+      const AndroidInitializationSettings initializationSettingsAndroid =
+          AndroidInitializationSettings('@mipmap/ic_launcher');
+      const InitializationSettings initializationSettings =
+          InitializationSettings(android: initializationSettingsAndroid);
+
+      await flutterLocalNotificationsPlugin.initialize(
+        settings: initializationSettings,
+      );
+    } catch (e) {
+      debugPrint('Background audio init failed: $e');
+    }
+  }
+
   runApp(const AuraStreamApp());
 }
 
@@ -21,11 +51,11 @@ class AuraStreamApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'AuraStream - Music Player',
+      title: 'AuraStream - Hi-Fi Player',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0F0F13),
-        primaryColor: const Color(0xFF1DB954), // Spotify Green
+        primaryColor: const Color(0xFF1DB954),
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFF1DB954),
           secondary: Color(0xFF1ED760),
@@ -123,11 +153,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   final AudioPlayer _audioPlayer = AudioPlayer();
   final yt.YoutubeExplode _ytExplode = yt.YoutubeExplode();
 
-  // Playlists and Cache
   List<SongItem> _downloadedSongs = [];
   List<PlaylistModel> _playlists = [];
 
-  // Queue and Playback
   final List<SongItem> _queue = [];
   int _currentQueueIndex = -1;
   SongItem? _currentSong;
@@ -137,6 +165,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   LoopMode _loopMode = LoopMode.off;
   Duration _position = Duration.zero;
   Duration _totalDuration = Duration.zero;
+
+  // Active Download Tasks Tracking in Notification Bar
+  final Map<String, double> _activeDownloadProgress = {};
 
   @override
   void initState() {
@@ -154,8 +185,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   Future<void> _loadFromStorage() async {
     final prefs = await SharedPreferences.getInstance();
-    
-    // Load Downloaded Songs Cache
+
     final dlJson = prefs.getString('cached_downloads');
     if (dlJson != null) {
       try {
@@ -167,7 +197,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       } catch (_) {}
     }
 
-    // Load Playlists Cache
     final plJson = prefs.getString('cached_playlists');
     if (plJson != null) {
       try {
@@ -178,7 +207,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         });
       } catch (_) {}
     } else {
-      // Default initial playlist
       setState(() {
         _playlists = [
           PlaylistModel(id: 'favs', name: 'Beğenilen Şarkılar', songs: [])
@@ -226,15 +254,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     });
   }
 
-  // Pure Client-Side Direct Stream Resolver (No server needed on Android/Mobile)
-  Future<String?> _resolveStreamUrl(String videoId) async {
+  Future<String?> _resolveStreamUrl(String videoId, {bool isVideo = false}) async {
     try {
       final manifest =
           await _ytExplode.videos.streamsClient.getManifest(videoId);
+      if (isVideo) {
+        final videoStream = manifest.muxed.withHighestBitrate();
+        return videoStream.url.toString();
+      }
       final audioStream = manifest.audioOnly.withHighestBitrate();
       return audioStream.url.toString();
     } catch (e) {
-      // Fallback to local proxy if running on web with CORS
       if (kIsWeb) {
         return "http://127.0.0.1:5050/audio/$videoId";
       }
@@ -242,7 +272,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     }
   }
 
-  Future<void> _playSong(SongItem song, {List<SongItem>? newQueue, int? queueIndex}) async {
+  Future<void> _playSong(SongItem song,
+      {List<SongItem>? newQueue, int? queueIndex, bool isVideo = false}) async {
     setState(() {
       _currentSong = song;
       _position = Duration.zero;
@@ -263,11 +294,32 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       if (song.localFilePath != null &&
           !kIsWeb &&
           io.File(song.localFilePath!).existsSync()) {
-        await _audioPlayer.setFilePath(song.localFilePath!);
+        final audioSource = AudioSource.uri(
+          Uri.file(song.localFilePath!),
+          tag: MediaItem(
+            id: song.id,
+            album: 'AuraStream Offline',
+            title: song.title,
+            artist: song.artist,
+            artUri: Uri.tryParse(song.thumbnailUrl),
+          ),
+        );
+        await _audioPlayer.setAudioSource(audioSource);
       } else {
-        final streamUrl = await _resolveStreamUrl(song.id);
+        final streamUrl =
+            await _resolveStreamUrl(song.id, isVideo: isVideo);
         if (streamUrl != null) {
-          await _audioPlayer.setUrl(streamUrl);
+          final audioSource = AudioSource.uri(
+            Uri.parse(streamUrl),
+            tag: MediaItem(
+              id: song.id,
+              album: isVideo ? 'AuraStream Video Sesi' : 'AuraStream Canlı',
+              title: song.title,
+              artist: song.artist,
+              artUri: Uri.tryParse(song.thumbnailUrl),
+            ),
+          );
+          await _audioPlayer.setAudioSource(audioSource);
         } else {
           throw Exception("Yayın adresi çözülemedi");
         }
@@ -298,8 +350,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   void _playNext() {
     if (_queue.isEmpty) return;
     if (_isShuffle) {
-      final nextIdx = (List<int>.generate(_queue.length, (i) => i)
-            ..shuffle())
+      final nextIdx = (List<int>.generate(_queue.length, (i) => i)..shuffle())
           .firstWhere((i) => i != _currentQueueIndex, orElse: () => 0);
       _currentQueueIndex = nextIdx;
     } else {
@@ -332,14 +383,45 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     );
   }
 
-  // Pure Device Cache & Download logic (No Server Required!)
+  // Background Download Tracking with Android Notification Bar
+  Future<void> _updateNotificationProgress(
+      int notifId, String title, int progress, int maxProgress) async {
+    if (kIsWeb) return;
+    try {
+      final androidPlatformChannelSpecifics = AndroidNotificationDetails(
+        'download_channel',
+        'İndirme Takibi',
+        channelDescription: 'AuraStream indirme ilerleme bildirimleri',
+        importance: Importance.low,
+        priority: Priority.low,
+        onlyAlertOnce: true,
+        showProgress: true,
+        maxProgress: maxProgress,
+        progress: progress,
+        ongoing: progress < maxProgress,
+      );
+      final platformChannelSpecifics =
+          NotificationDetails(android: androidPlatformChannelSpecifics);
+      await flutterLocalNotificationsPlugin.show(
+        id: notifId,
+        title: progress < maxProgress ? 'İndiriliyor: $title' : '✓ İndirme Tamamlandı',
+        body: progress < maxProgress ? '%$progress tamamlandı' : title,
+        notificationDetails: platformChannelSpecifics,
+      );
+    } catch (_) {}
+  }
+
   Future<void> _downloadOrCacheSong(SongItem song,
-      {bool isOfflineCache = false}) async {
+      {bool isOfflineCache = false, bool isVideo = false}) async {
+    final notifId = song.id.hashCode.abs() % 100000;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(isOfflineCache
             ? 'Önbelleğe indiriliyor: ${song.title}...'
-            : 'Telefona indiriliyor: ${song.title}...'),
+            : (isVideo
+                ? 'Video indiriliyor: ${song.title}...'
+                : 'Telefona indiriliyor: ${song.title}...')),
         duration: const Duration(seconds: 2),
         backgroundColor: const Color(0xFF1DB954),
       ),
@@ -347,22 +429,27 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
     try {
       if (kIsWeb) {
-        // Web direct browser download
-        final streamUrl = await _resolveStreamUrl(song.id);
+        final streamUrl =
+            await _resolveStreamUrl(song.id, isVideo: isVideo);
         if (streamUrl != null) {
-          final anchor = web.document.createElement('a') as web.HTMLAnchorElement;
+          final anchor =
+              web.document.createElement('a') as web.HTMLAnchorElement;
           anchor.href = streamUrl;
-          anchor.download = '${song.title}.m4a';
+          anchor.download =
+              isVideo ? '${song.title}.mp4' : '${song.title}.m4a';
           anchor.target = '_blank';
           web.document.body?.appendChild(anchor);
           anchor.click();
           anchor.remove();
         }
       } else {
-        // Mobile / Desktop native storage stream saving
         final manifest =
             await _ytExplode.videos.streamsClient.getManifest(song.id);
-        final streamInfo = manifest.audioOnly.withHighestBitrate();
+        final streamInfo = isVideo
+            ? manifest.muxed.withHighestBitrate()
+            : manifest.audioOnly.withHighestBitrate();
+
+        final totalBytes = streamInfo.size.totalBytes;
         final stream = _ytExplode.videos.streamsClient.get(streamInfo);
 
         final dir = isOfflineCache
@@ -372,14 +459,38 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
         final sanitizedTitle =
             song.title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-        final filePath =
-            '${dir.path}/$sanitizedTitle.${streamInfo.container.name}';
+        final ext = isVideo ? 'mp4' : streamInfo.container.name;
+        final filePath = '${dir.path}/$sanitizedTitle.$ext';
         final file = io.File(filePath);
         final output = file.openWrite();
 
-        await stream.pipe(output);
+        int downloaded = 0;
+        int lastReportedPercent = -1;
+
+        await for (final chunk in stream) {
+          output.add(chunk);
+          downloaded += chunk.length;
+          final currentPercent = ((downloaded / totalBytes) * 100).toInt();
+          if (currentPercent != lastReportedPercent &&
+              currentPercent % 5 == 0) {
+            lastReportedPercent = currentPercent;
+            setState(() {
+              _activeDownloadProgress[song.id] = downloaded / totalBytes;
+            });
+            await _updateNotificationProgress(
+                notifId, song.title, currentPercent, 100);
+          }
+        }
+
         await output.flush();
         await output.close();
+
+        // Final Complete Notification
+        await _updateNotificationProgress(notifId, song.title, 100, 100);
+
+        setState(() {
+          _activeDownloadProgress.remove(song.id);
+        });
 
         final downloadedItem = SongItem(
           id: song.id,
@@ -387,7 +498,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           artist: song.artist,
           duration: song.duration,
           thumbnailUrl: song.thumbnailUrl,
-          format: isOfflineCache ? 'Önbellek (Offline)' : 'MAX SES (Telefon)',
+          format: isOfflineCache
+              ? 'Önbellek (Offline)'
+              : (isVideo ? '720p HD MP4' : 'MAX SES (Telefon)'),
           localFilePath: filePath,
           downloadDate: DateTime.now(),
         );
@@ -408,6 +521,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         );
       }
     } catch (e) {
+      setState(() {
+        _activeDownloadProgress.remove(song.id);
+      });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -477,8 +593,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       subtitle: Text('${pl.songs.length} şarkı',
                           style: const TextStyle(color: Colors.grey)),
                       trailing: Icon(
-                        contains ? Icons.check_circle : Icons.add_circle_outline,
-                        color: contains ? const Color(0xFF1DB954) : Colors.white54,
+                        contains
+                            ? Icons.check_circle
+                            : Icons.add_circle_outline,
+                        color: contains
+                            ? const Color(0xFF1DB954)
+                            : Colors.white54,
                       ),
                       onTap: () {
                         setState(() {
@@ -588,6 +708,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         onAddToPlaylist: () => _showAddToPlaylistDialog(_currentSong!),
         onDownload: (isCache) =>
             _downloadOrCacheSong(_currentSong!, isOfflineCache: isCache),
+        onPlayVideoBackground: () =>
+            _playSong(_currentSong!, isVideo: true),
       ),
     );
   }
@@ -603,11 +725,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                 index: _currentTabIndex,
                 children: [
                   _SearchTab(
+                    downloadProgress: _activeDownloadProgress,
                     onPlaySong: (s) => _playSong(s),
+                    onPlayVideoBackground: (s) => _playSong(s, isVideo: true),
                     onAddToQueue: _addToQueue,
                     onAddToPlaylist: _showAddToPlaylistDialog,
-                    onDownload: (s) => _downloadOrCacheSong(s, isOfflineCache: false),
-                    onCache: (s) => _downloadOrCacheSong(s, isOfflineCache: true),
+                    onDownload: (s) =>
+                        _downloadOrCacheSong(s, isOfflineCache: false),
+                    onDownloadVideo: (s) => _downloadOrCacheSong(s,
+                        isOfflineCache: false, isVideo: true),
+                    onCache: (s) =>
+                        _downloadOrCacheSong(s, isOfflineCache: true),
                   ),
                   _PlaylistsTab(
                     playlists: _playlists,
@@ -619,7 +747,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     },
                     onCreatePlaylist: () => _showCreatePlaylistDialog(),
                     onDeletePlaylist: (pl) {
-                      setState(() => _playlists.removeWhere((p) => p.id == pl.id));
+                      setState(
+                          () => _playlists.removeWhere((p) => p.id == pl.id));
                       _savePlaylists();
                     },
                     onDownloadAll: (pl, isCache) async {
@@ -632,7 +761,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     downloadedSongs: _downloadedSongs,
                     onPlaySong: (s) => _playSong(s),
                     onDeleteSong: (s) {
-                      setState(() => _downloadedSongs.removeWhere((i) => i.id == s.id));
+                      setState(() =>
+                          _downloadedSongs.removeWhere((i) => i.id == s.id));
                       _saveDownloads();
                     },
                   ),
@@ -671,17 +801,20 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           items: const [
             BottomNavigationBarItem(
               icon: Icon(Icons.search_rounded),
-              activeIcon: Icon(Icons.search_rounded, color: Color(0xFF1DB954)),
+              activeIcon:
+                  Icon(Icons.search_rounded, color: Color(0xFF1DB954)),
               label: 'Ara & Keşfet',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.library_music_outlined),
-              activeIcon: Icon(Icons.library_music_rounded, color: Color(0xFF1DB954)),
+              activeIcon: Icon(Icons.library_music_rounded,
+                  color: Color(0xFF1DB954)),
               label: 'Çalma Listeleri',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.download_done_rounded),
-              activeIcon: Icon(Icons.download_done_rounded, color: Color(0xFF1DB954)),
+              activeIcon: Icon(Icons.download_done_rounded,
+                  color: Color(0xFF1DB954)),
               label: 'Önbellek & İndirilenler',
             ),
           ],
@@ -693,17 +826,23 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
 // ==================== SEARCH TAB ====================
 class _SearchTab extends StatefulWidget {
+  final Map<String, double> downloadProgress;
   final Function(SongItem) onPlaySong;
+  final Function(SongItem) onPlayVideoBackground;
   final Function(SongItem) onAddToQueue;
   final Function(SongItem) onAddToPlaylist;
   final Function(SongItem) onDownload;
+  final Function(SongItem) onDownloadVideo;
   final Function(SongItem) onCache;
 
   const _SearchTab({
+    required this.downloadProgress,
     required this.onPlaySong,
+    required this.onPlayVideoBackground,
     required this.onAddToQueue,
     required this.onAddToPlaylist,
     required this.onDownload,
+    required this.onDownloadVideo,
     required this.onCache,
   });
 
@@ -717,7 +856,6 @@ class _SearchTabState extends State<_SearchTab> {
   Timer? _debounceTimer;
 
   List<String> _suggestions = [];
-  bool _isLoadingSuggestions = false;
   List<SongItem> _searchResults = [];
   bool _isLoadingSearch = false;
   String _activeQuery = '';
@@ -735,12 +873,10 @@ class _SearchTabState extends State<_SearchTab> {
     if (query.trim().isEmpty) {
       setState(() {
         _suggestions = [];
-        _isLoadingSuggestions = false;
       });
       return;
     }
 
-    setState(() => _isLoadingSuggestions = true);
     _debounceTimer = Timer(const Duration(milliseconds: 250), () {
       _fetchAutocompleteSuggestions(query.trim());
     });
@@ -765,7 +901,6 @@ class _SearchTabState extends State<_SearchTab> {
             if (mounted) {
               setState(() {
                 _suggestions = list;
-                _isLoadingSuggestions = false;
               });
             }
             return;
@@ -773,7 +908,6 @@ class _SearchTabState extends State<_SearchTab> {
         }
       }
     } catch (_) {}
-    if (mounted) setState(() => _isLoadingSuggestions = false);
   }
 
   Future<void> _performSearch(String query) async {
@@ -821,7 +955,6 @@ class _SearchTabState extends State<_SearchTab> {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Spotify Style Header & Search Bar
         Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
@@ -840,19 +973,22 @@ class _SearchTabState extends State<_SearchTab> {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1DB954).withOpacity(0.15),
+                      color: const Color(0xFF1DB954).withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFF1DB954), width: 1),
+                      border:
+                          Border.all(color: const Color(0xFF1DB954), width: 1),
                     ),
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.bolt, color: Color(0xFF1DB954), size: 16),
+                        Icon(Icons.music_video_rounded,
+                            color: Color(0xFF1DB954), size: 16),
                         SizedBox(width: 4),
                         Text(
-                          'Direct Client Engine',
+                          'Background Engine',
                           style: TextStyle(
                             color: Color(0xFF1DB954),
                             fontSize: 11,
@@ -871,7 +1007,7 @@ class _SearchTabState extends State<_SearchTab> {
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.3),
+                      color: Colors.black.withValues(alpha: 0.3),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     )
@@ -884,13 +1020,14 @@ class _SearchTabState extends State<_SearchTab> {
                   onChanged: _onSearchChanged,
                   onSubmitted: _performSearch,
                   decoration: InputDecoration(
-                    hintText: 'Şarkı, sanatçı veya müzik ara...',
+                    hintText: 'Şarkı veya video ara...',
                     hintStyle: const TextStyle(color: Colors.white38),
                     prefixIcon:
                         const Icon(Icons.search, color: Color(0xFF1DB954)),
                     suffixIcon: _searchController.text.isNotEmpty
                         ? IconButton(
-                            icon: const Icon(Icons.close, color: Colors.white38),
+                            icon: const Icon(Icons.close,
+                                color: Colors.white38),
                             onPressed: () {
                               _searchController.clear();
                               _onSearchChanged('');
@@ -898,16 +1035,14 @@ class _SearchTabState extends State<_SearchTab> {
                           )
                         : null,
                     border: InputBorder.none,
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 14),
                   ),
                 ),
               ),
             ],
           ),
         ),
-
-        // Live Suggestions List
         if (_suggestions.isNotEmpty)
           Expanded(
             child: ListView.builder(
@@ -943,12 +1078,17 @@ class _SearchTabState extends State<_SearchTab> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               itemBuilder: (ctx, index) {
                 final song = _searchResults[index];
+                final progress = widget.downloadProgress[song.id];
                 return _SpotifySongCard(
                   song: song,
+                  downloadProgress: progress,
                   onPlay: () => widget.onPlaySong(song),
+                  onPlayVideoBackground: () =>
+                      widget.onPlayVideoBackground(song),
                   onAddToQueue: () => widget.onAddToQueue(song),
                   onAddToPlaylist: () => widget.onAddToPlaylist(song),
                   onDownload: () => widget.onDownload(song),
+                  onDownloadVideo: () => widget.onDownloadVideo(song),
                   onCache: () => widget.onCache(song),
                 );
               },
@@ -961,11 +1101,11 @@ class _SearchTabState extends State<_SearchTab> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Icon(Icons.headphones_rounded,
-                      size: 64, color: Colors.white.withOpacity(0.15)),
+                      size: 64, color: Colors.white.withValues(alpha: 0.15)),
                   const SizedBox(height: 16),
                   Text(
                     _activeQuery.isEmpty
-                        ? 'Milyonlarca şarkıyı anında arayın ve dinleyin'
+                        ? 'Milyonlarca şarkıyı ve videoyu arka planda dinleyin'
                         : 'Sonuç bulunamadı',
                     style: const TextStyle(color: Colors.white38, fontSize: 14),
                   ),
@@ -981,18 +1121,24 @@ class _SearchTabState extends State<_SearchTab> {
 // ==================== SPOTIFY SONG CARD ====================
 class _SpotifySongCard extends StatelessWidget {
   final SongItem song;
+  final double? downloadProgress;
   final VoidCallback onPlay;
+  final VoidCallback onPlayVideoBackground;
   final VoidCallback onAddToQueue;
   final VoidCallback onAddToPlaylist;
   final VoidCallback onDownload;
+  final VoidCallback onDownloadVideo;
   final VoidCallback onCache;
 
   const _SpotifySongCard({
     required this.song,
+    this.downloadProgress,
     required this.onPlay,
+    required this.onPlayVideoBackground,
     required this.onAddToQueue,
     required this.onAddToPlaylist,
     required this.onDownload,
+    required this.onDownloadVideo,
     required this.onCache,
   });
 
@@ -1003,7 +1149,7 @@ class _SpotifySongCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF181820),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.04)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
       ),
       child: Column(
         children: [
@@ -1019,11 +1165,12 @@ class _SpotifySongCard extends StatelessWidget {
                     width: 52,
                     height: 52,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
+                    errorBuilder: (_, _, _) => Container(
                       width: 52,
                       height: 52,
                       color: Colors.grey.shade900,
-                      child: const Icon(Icons.music_note, color: Colors.white54),
+                      child:
+                          const Icon(Icons.music_note, color: Colors.white54),
                     ),
                   ),
                   Container(
@@ -1046,17 +1193,11 @@ class _SpotifySongCard extends StatelessWidget {
                 color: Colors.white,
               ),
             ),
-            subtitle: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    '${song.artist} • ${song.duration}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
-                  ),
-                ),
-              ],
+            subtitle: Text(
+              '${song.artist} • ${song.duration}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white54, fontSize: 12),
             ),
             trailing: PopupMenuButton<String>(
               icon: const Icon(Icons.more_vert, color: Colors.white70),
@@ -1066,15 +1207,29 @@ class _SpotifySongCard extends StatelessWidget {
               onSelected: (val) {
                 if (val == 'queue') onAddToQueue();
                 if (val == 'playlist') onAddToPlaylist();
+                if (val == 'video_bg') onPlayVideoBackground();
                 if (val == 'download') onDownload();
+                if (val == 'download_vid') onDownloadVideo();
                 if (val == 'cache') onCache();
               },
               itemBuilder: (ctx) => [
                 const PopupMenuItem(
+                  value: 'video_bg',
+                  child: Row(
+                    children: [
+                      Icon(Icons.video_library,
+                          color: Color(0xFF00E5FF), size: 20),
+                      SizedBox(width: 12),
+                      Text('Videoyu Arkada Oynat'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
                   value: 'queue',
                   child: Row(
                     children: [
-                      Icon(Icons.queue_music, color: Color(0xFF1DB954), size: 20),
+                      Icon(Icons.queue_music,
+                          color: Color(0xFF1DB954), size: 20),
                       SizedBox(width: 12),
                       Text('Sıraya Ekle'),
                     ],
@@ -1084,7 +1239,7 @@ class _SpotifySongCard extends StatelessWidget {
                   value: 'playlist',
                   child: Row(
                     children: [
-                      Icon(Icons.playlist_add, color: Color(0xFF00E5FF), size: 20),
+                      Icon(Icons.playlist_add, color: Colors.amber, size: 20),
                       SizedBox(width: 12),
                       Text('Çalma Listesine Ekle'),
                     ],
@@ -1094,9 +1249,10 @@ class _SpotifySongCard extends StatelessWidget {
                   value: 'cache',
                   child: Row(
                     children: [
-                      Icon(Icons.offline_pin, color: Color(0xFFFF2A55), size: 20),
+                      Icon(Icons.offline_pin,
+                          color: Color(0xFFFF2A55), size: 20),
                       SizedBox(width: 12),
-                      Text('Önbelleğe İndir (Offline)'),
+                      Text('Önbelleğe Al (Offline)'),
                     ],
                   ),
                 ),
@@ -1104,9 +1260,20 @@ class _SpotifySongCard extends StatelessWidget {
                   value: 'download',
                   child: Row(
                     children: [
-                      Icon(Icons.download, color: Colors.amber, size: 20),
+                      Icon(Icons.phone_android,
+                          color: Color(0xFF1DB954), size: 20),
                       SizedBox(width: 12),
                       Text('Telefona İndir (M4A/Max)'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'download_vid',
+                  child: Row(
+                    children: [
+                      Icon(Icons.download, color: Colors.orange, size: 20),
+                      SizedBox(width: 12),
+                      Text('720p HD Video İndir'),
                     ],
                   ),
                 ),
@@ -1114,9 +1281,38 @@ class _SpotifySongCard extends StatelessWidget {
             ),
             onTap: onPlay,
           ),
-          // Action Buttons Bar
+          if (downloadProgress != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Bildirim çubuğunda indiriliyor...',
+                          style: TextStyle(
+                              color: Color(0xFF1DB954), fontSize: 11)),
+                      Text('%${(downloadProgress! * 100).toInt()}',
+                          style: const TextStyle(
+                              color: Color(0xFF1DB954),
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  LinearProgressIndicator(
+                    value: downloadProgress,
+                    backgroundColor: Colors.white12,
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                        Color(0xFF1DB954)),
+                    minHeight: 3,
+                  )
+                ],
+              ),
+            ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+            padding: const EdgeInsets.fromLTRB(12, 4, 12, 10),
             child: Row(
               children: [
                 Expanded(
@@ -1138,10 +1334,10 @@ class _SpotifySongCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 _ModernActionButton(
-                  icon: Icons.playlist_add,
+                  icon: Icons.video_library_outlined,
                   label: '',
-                  color: Colors.white70,
-                  onTap: onAddToPlaylist,
+                  color: Colors.amber,
+                  onTap: onPlayVideoBackground,
                 ),
               ],
             ),
@@ -1173,9 +1369,9 @@ class _ModernActionButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
+          color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withOpacity(0.3), width: 1),
+          border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -1337,7 +1533,8 @@ class _PlaylistsTab extends StatelessWidget {
                                     const SizedBox(width: 8),
                                     OutlinedButton.icon(
                                       style: OutlinedButton.styleFrom(
-                                        foregroundColor: const Color(0xFF00E5FF),
+                                        foregroundColor:
+                                            const Color(0xFF00E5FF),
                                         side: const BorderSide(
                                             color: Color(0xFF00E5FF)),
                                       ),
@@ -1366,7 +1563,8 @@ class _PlaylistsTab extends StatelessWidget {
                                     subtitle: Text(song.artist,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis),
-                                    trailing: const Icon(Icons.play_arrow_rounded,
+                                    trailing: const Icon(
+                                        Icons.play_arrow_rounded,
                                         color: Color(0xFF1DB954)),
                                     onTap: () => onPlayPlaylist(pl, sIdx),
                                   );
@@ -1412,21 +1610,23 @@ class _DownloadsCacheTab extends StatelessWidget {
                 style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white12,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
                   '${downloadedSongs.length} Dosya',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 12),
                 ),
               )
             ],
           ),
           const SizedBox(height: 8),
           const Text(
-            'İnternetiniz olmasa bile önbellekteki tüm parçalarınızı dinleyebilirsiniz.',
+            'İnternetiniz kapalıyken veya ekran kilitliyken arka planda çalınabilir.',
             style: TextStyle(color: Colors.white54, fontSize: 13),
           ),
           const SizedBox(height: 16),
@@ -1439,7 +1639,8 @@ class _DownloadsCacheTab extends StatelessWidget {
                         Icon(Icons.download_for_offline_outlined,
                             size: 64, color: Colors.white24),
                         SizedBox(height: 12),
-                        Text('Henüz indirilmiş veya önbelleğe alınmış şarkı yok.',
+                        Text(
+                            'Henüz indirilmiş veya önbelleğe alınmış şarkı yok.',
                             style: TextStyle(color: Colors.white54)),
                       ],
                     ),
@@ -1463,7 +1664,7 @@ class _DownloadsCacheTab extends StatelessWidget {
                               width: 48,
                               height: 48,
                               fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(
+                              errorBuilder: (_, _, _) => Container(
                                 width: 48,
                                 height: 48,
                                 color: Colors.grey.shade900,
@@ -1476,7 +1677,8 @@ class _DownloadsCacheTab extends StatelessWidget {
                             item.title,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            style:
+                                const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           subtitle: Text(
                             '${item.artist} • ${item.format}',
@@ -1547,7 +1749,7 @@ class _SpotifyMiniPlayer extends StatelessWidget {
           borderRadius: BorderRadius.circular(10),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.4),
+              color: Colors.black.withValues(alpha: 0.4),
               blurRadius: 8,
               offset: const Offset(0, -2),
             )
@@ -1566,11 +1768,12 @@ class _SpotifyMiniPlayer extends StatelessWidget {
                   width: 44,
                   height: 44,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
+                  errorBuilder: (_, _, _) => Container(
                     width: 44,
                     height: 44,
                     color: Colors.grey.shade900,
-                    child: const Icon(Icons.music_note, color: Colors.white54),
+                    child:
+                        const Icon(Icons.music_note, color: Colors.white54),
                   ),
                 ),
               ),
@@ -1578,7 +1781,8 @@ class _SpotifyMiniPlayer extends StatelessWidget {
                 song.title,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 13.5),
               ),
               subtitle: Text(
                 song.artist,
@@ -1601,7 +1805,9 @@ class _SpotifyMiniPlayer extends StatelessWidget {
                   else
                     IconButton(
                       icon: Icon(
-                        isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                        isPlaying
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
                         color: Colors.white,
                         size: 30,
                       ),
@@ -1652,6 +1858,7 @@ class _SpotifyFullPlayer extends StatelessWidget {
   final VoidCallback onToggleLoop;
   final VoidCallback onAddToPlaylist;
   final Function(bool) onDownload;
+  final VoidCallback onPlayVideoBackground;
 
   const _SpotifyFullPlayer({
     required this.song,
@@ -1671,6 +1878,7 @@ class _SpotifyFullPlayer extends StatelessWidget {
     required this.onToggleLoop,
     required this.onAddToPlaylist,
     required this.onDownload,
+    required this.onPlayVideoBackground,
   });
 
   String _formatDuration(Duration d) {
@@ -1698,7 +1906,6 @@ class _SpotifyFullPlayer extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
       child: Column(
         children: [
-          // Drag handle & Top Header
           Container(
             width: 40,
             height: 4,
@@ -1728,7 +1935,7 @@ class _SpotifyFullPlayer extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    'AuraStream Hi-Fi',
+                    'AuraStream Hi-Fi Media',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 13,
@@ -1743,10 +1950,7 @@ class _SpotifyFullPlayer extends StatelessWidget {
               ),
             ],
           ),
-
           const Spacer(),
-
-          // Big Album Art
           Center(
             child: Container(
               width: MediaQuery.of(context).size.width * 0.8,
@@ -1755,7 +1959,7 @@ class _SpotifyFullPlayer extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.6),
+                    color: Colors.black.withValues(alpha: 0.6),
                     blurRadius: 30,
                     offset: const Offset(0, 10),
                   )
@@ -1766,7 +1970,7 @@ class _SpotifyFullPlayer extends StatelessWidget {
                 child: Image.network(
                   song.thumbnailUrl,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
+                  errorBuilder: (_, _, _) => Container(
                     color: Colors.grey.shade900,
                     child: const Icon(Icons.music_note,
                         size: 80, color: Colors.white24),
@@ -1775,10 +1979,7 @@ class _SpotifyFullPlayer extends StatelessWidget {
               ),
             ),
           ),
-
           const Spacer(),
-
-          // Song Info & Cache / Download Quick Buttons
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -1811,8 +2012,14 @@ class _SpotifyFullPlayer extends StatelessWidget {
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.offline_pin,
+                icon: const Icon(Icons.video_library_rounded,
                     color: Color(0xFF00E5FF), size: 28),
+                tooltip: 'Videoyu Arkada Oynat',
+                onPressed: onPlayVideoBackground,
+              ),
+              IconButton(
+                icon: const Icon(Icons.offline_pin,
+                    color: Color(0xFFFF2A55), size: 28),
                 tooltip: 'Önbelleğe Al',
                 onPressed: () => onDownload(true),
               ),
@@ -1824,10 +2031,7 @@ class _SpotifyFullPlayer extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 16),
-
-          // Draggable Seek Slider
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               trackHeight: 4,
@@ -1849,8 +2053,6 @@ class _SpotifyFullPlayer extends StatelessWidget {
               },
             ),
           ),
-
-          // Digital Timers
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
@@ -1865,10 +2067,7 @@ class _SpotifyFullPlayer extends StatelessWidget {
               ],
             ),
           ),
-
           const SizedBox(height: 8),
-
-          // Controls (Shuffle, Prev, Play/Pause, Next, Loop)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1930,7 +2129,6 @@ class _SpotifyFullPlayer extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 20),
         ],
       ),
