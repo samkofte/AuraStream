@@ -237,7 +237,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           _isPlaying = state.playing &&
               state.processingState != ProcessingState.completed;
           _isBuffering = state.processingState == ProcessingState.buffering ||
-              state.processingState == ProcessingState.loading;
+              (state.processingState == ProcessingState.loading && state.playing);
         });
         if (state.processingState == ProcessingState.completed) {
           _playNext();
@@ -246,7 +246,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     });
 
     _audioPlayer.positionStream.listen((pos) {
-      if (mounted) setState(() => _position = pos);
+      if (mounted) {
+        setState(() {
+          _position = pos;
+          if (pos > Duration.zero) {
+            _isBuffering = false;
+          }
+        });
+      }
     });
 
     _audioPlayer.durationStream.listen((dur) {
@@ -346,7 +353,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _togglePlayPause() {
-    if (_isPlaying) {
+    setState(() {
+      _isBuffering = false;
+    });
+    if (_audioPlayer.playing) {
       _audioPlayer.pause();
     } else {
       _audioPlayer.play();
@@ -1064,29 +1074,40 @@ class _SearchTabState extends State<_SearchTab> {
                       child: Icon(Icons.search, color: Color(0xFF1DB954), size: 22),
                     ),
                     Expanded(
-                      child: TextField(
-                        controller: _searchController,
-                        focusNode: _focusNode,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          decoration: TextDecoration.none,
-                        ),
-                        textAlignVertical: TextAlignVertical.center,
-                        onChanged: _onSearchChanged,
-                        onSubmitted: (val) => _performSearch(val),
-                        textInputAction: TextInputAction.search,
-                        decoration: InputDecoration(
-                          hintText: _searchController.text.isNotEmpty ? null : 'Şarkı, sanatçı veya video ara...',
-                          hintStyle: const TextStyle(
-                            color: Colors.white38,
-                            fontSize: 14,
+                      child: Stack(
+                        alignment: Alignment.centerLeft,
+                        children: [
+                          if (_searchController.text.isEmpty)
+                            const Text(
+                              'Şarkı, sanatçı veya video ara...',
+                              style: TextStyle(
+                                color: Colors.white38,
+                                fontSize: 14,
+                              ),
+                            ),
+                          TextField(
+                            controller: _searchController,
+                            focusNode: _focusNode,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                            ),
+                            textAlignVertical: TextAlignVertical.center,
+                            onChanged: (val) {
+                              setState(() {});
+                              _onSearchChanged(val);
+                            },
+                            onSubmitted: (val) => _performSearch(val),
+                            textInputAction: TextInputAction.search,
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              contentPadding: EdgeInsets.zero,
+                              isDense: true,
+                            ),
                           ),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          isCollapsed: true,
-                        ),
+                        ],
                       ),
                     ),
                     if (_searchController.text.isNotEmpty)
@@ -1095,6 +1116,7 @@ class _SearchTabState extends State<_SearchTab> {
                         splashRadius: 18,
                         onPressed: () {
                           _searchController.clear();
+                          setState(() {});
                           _onSearchChanged('');
                         },
                       ),
@@ -1949,8 +1971,16 @@ class _SpotifyFullPlayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Sırada şarkı var mı kontrol et
+    final hasNextSong = queue.isNotEmpty && currentQueueIndex >= 0 && currentQueueIndex < queue.length - 1;
+    final nextSong = hasNextSong ? queue[currentQueueIndex + 1] : null;
+
+    final screenWidth = MediaQuery.of(context).size.width;
+    // Masaüstü ve mobilde orantılı, dengeli albüm kapağı boyutu
+    final coverSize = screenWidth > 600 ? 240.0 : (screenWidth * 0.58).clamp(180.0, 260.0);
+
     return Container(
-      height: MediaQuery.of(context).size.height * 0.94,
+      height: MediaQuery.of(context).size.height * 0.92,
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topCenter,
@@ -1965,25 +1995,25 @@ class _SpotifyFullPlayer extends StatelessWidget {
       ),
       child: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 40,
+                width: 36,
                 height: 4,
                 decoration: BoxDecoration(
                   color: Colors.white24,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   IconButton(
                     icon: const Icon(Icons.keyboard_arrow_down,
-                        color: Colors.white, size: 30),
+                        color: Colors.white, size: 28),
                     onPressed: () => Navigator.pop(context),
                   ),
                   const Column(
@@ -1992,7 +2022,7 @@ class _SpotifyFullPlayer extends StatelessWidget {
                         'ŞU AN ÇALINIYOR',
                         style: TextStyle(
                           color: Colors.white54,
-                          fontSize: 11,
+                          fontSize: 10.5,
                           letterSpacing: 1.2,
                           fontWeight: FontWeight.bold,
                         ),
@@ -2001,53 +2031,49 @@ class _SpotifyFullPlayer extends StatelessWidget {
                         'AuraStream Hi-Fi Media',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 13,
+                          fontSize: 12.5,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                     ],
                   ),
                   IconButton(
-                    icon: const Icon(Icons.playlist_add, color: Colors.white),
+                    icon: const Icon(Icons.playlist_add, color: Colors.white, size: 24),
                     onPressed: onAddToPlaylist,
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-              // Albüm Kapağı (Taşmayı önlemek için esnek boyutlandırıldı)
+              const SizedBox(height: 12),
+              // Dengeli, ortalanmış albüm kapağı
               Center(
                 child: Container(
-                  width: MediaQuery.of(context).size.width > 500
-                      ? 320
-                      : MediaQuery.of(context).size.width * 0.72,
-                  height: MediaQuery.of(context).size.width > 500
-                      ? 320
-                      : MediaQuery.of(context).size.width * 0.72,
+                  width: coverSize,
+                  height: coverSize,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(14),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.6),
-                        blurRadius: 30,
-                        offset: const Offset(0, 10),
+                        color: Colors.black.withValues(alpha: 0.5),
+                        blurRadius: 20,
+                        offset: const Offset(0, 8),
                       )
                     ],
                   ),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(14),
                     child: Image.network(
                       song.thumbnailUrl,
                       fit: BoxFit.cover,
                       errorBuilder: (_, _, _) => Container(
                         color: Colors.grey.shade900,
                         child: const Icon(Icons.music_note,
-                            size: 80, color: Colors.white24),
+                            size: 60, color: Colors.white24),
                       ),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -2061,18 +2087,18 @@ class _SpotifyFullPlayer extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 18,
+                            fontSize: 17,
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                           ),
                         ),
-                        const SizedBox(height: 4),
+                        const SizedBox(height: 3),
                         Text(
                           song.artist,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            fontSize: 14,
+                            fontSize: 13.5,
                             color: Colors.white54,
                           ),
                         ),
@@ -2081,30 +2107,30 @@ class _SpotifyFullPlayer extends StatelessWidget {
                   ),
                   IconButton(
                     icon: const Icon(Icons.video_library_rounded,
-                        color: Color(0xFF00E5FF), size: 26),
+                        color: Color(0xFF00E5FF), size: 24),
                     tooltip: 'Videoyu Arkada Oynat',
                     onPressed: onPlayVideoBackground,
                   ),
                   IconButton(
                     icon: const Icon(Icons.offline_pin,
-                        color: Color(0xFFFF2A55), size: 26),
+                        color: Color(0xFFFF2A55), size: 24),
                     tooltip: 'Önbelleğe Al',
                     onPressed: () => onDownload(true),
                   ),
                   IconButton(
                     icon: const Icon(Icons.download,
-                        color: Color(0xFF1DB954), size: 26),
+                        color: Color(0xFF1DB954), size: 24),
                     tooltip: 'Telefona İndir',
                     onPressed: () => onDownload(false),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               SliderTheme(
                 data: SliderTheme.of(context).copyWith(
-                  trackHeight: 4,
-                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                  trackHeight: 3.5,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5.5),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 12),
                   activeTrackColor: const Color(0xFF1DB954),
                   inactiveTrackColor: Colors.white24,
                   thumbColor: Colors.white,
@@ -2128,60 +2154,52 @@ class _SpotifyFullPlayer extends StatelessWidget {
                   children: [
                     Text(_formatDuration(position),
                         style:
-                            const TextStyle(color: Colors.white54, fontSize: 12)),
+                            const TextStyle(color: Colors.white54, fontSize: 11.5)),
                     Text(_formatDuration(totalDuration),
                         style:
-                            const TextStyle(color: Colors.white54, fontSize: 12)),
+                            const TextStyle(color: Colors.white54, fontSize: 11.5)),
                   ],
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
+              // Oynatma Kontrolleri (Orantılı, ortalanmış)
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
                   IconButton(
                     icon: Icon(
                       Icons.shuffle_rounded,
                       color: isShuffle ? const Color(0xFF1DB954) : Colors.white38,
+                      size: 22,
                     ),
                     onPressed: onToggleShuffle,
                   ),
                   IconButton(
                     icon: const Icon(Icons.skip_previous_rounded,
-                        color: Colors.white, size: 38),
+                        color: Colors.white, size: 34),
                     onPressed: onPrev,
                   ),
                   Container(
+                    width: 58,
+                    height: 58,
                     decoration: const BoxDecoration(
                       shape: BoxShape.circle,
                       color: Colors.white,
                     ),
-                    child: isBuffering
-                        ? const Padding(
-                            padding: EdgeInsets.all(14.0),
-                            child: SizedBox(
-                              width: 28,
-                              height: 28,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2.5,
-                                color: Colors.black,
-                              ),
-                            ),
-                          )
-                        : IconButton(
-                            icon: Icon(
-                              isPlaying
-                                  ? Icons.pause_rounded
-                                  : Icons.play_arrow_rounded,
-                              color: Colors.black,
-                              size: 36,
-                            ),
-                            onPressed: onTogglePlay,
-                          ),
+                    child: IconButton(
+                      icon: Icon(
+                        isPlaying
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
+                        color: Colors.black,
+                        size: 34,
+                      ),
+                      onPressed: onTogglePlay,
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.skip_next_rounded,
-                        color: Colors.white, size: 38),
+                        color: Colors.white, size: 34),
                     onPressed: onNext,
                   ),
                   IconButton(
@@ -2192,12 +2210,63 @@ class _SpotifyFullPlayer extends StatelessWidget {
                       color: loopMode != LoopMode.off
                           ? const Color(0xFF1DB954)
                           : Colors.white38,
+                      size: 22,
                     ),
                     onPressed: onToggleLoop,
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
+
+              // SIRADAKİ PARÇA BİLGİSİ (Playlist / Sıra Varsa Gösterilir)
+              if (nextSong != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white10),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.queue_music, color: Color(0xFF1DB954), size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'SIRADAKİ',
+                              style: TextStyle(
+                                color: Color(0xFF1DB954),
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            Text(
+                              '${nextSong.title} • ${nextSong.artist}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.skip_next, color: Colors.white70, size: 20),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                        tooltip: 'Sıradakine Geç',
+                        onPressed: onNext,
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 10),
             ],
           ),
         ),
