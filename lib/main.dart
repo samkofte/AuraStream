@@ -1960,234 +1960,244 @@ class _SpotifyFullPlayer extends StatelessWidget {
         ),
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-      child: Column(
-        children: [
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.white24,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              IconButton(
-                icon: const Icon(Icons.keyboard_arrow_down,
-                    color: Colors.white, size: 30),
-                onPressed: () => Navigator.pop(context),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-              const Column(
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'ŞU AN ÇALINIYOR',
-                    style: TextStyle(
-                      color: Colors.white54,
-                      fontSize: 11,
-                      letterSpacing: 1.2,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  IconButton(
+                    icon: const Icon(Icons.keyboard_arrow_down,
+                        color: Colors.white, size: 30),
+                    onPressed: () => Navigator.pop(context),
                   ),
-                  Text(
-                    'AuraStream Hi-Fi Media',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold,
-                    ),
+                  const Column(
+                    children: [
+                      Text(
+                        'ŞU AN ÇALINIYOR',
+                        style: TextStyle(
+                          color: Colors.white54,
+                          fontSize: 11,
+                          letterSpacing: 1.2,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'AuraStream Hi-Fi Media',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.playlist_add, color: Colors.white),
+                    onPressed: onAddToPlaylist,
                   ),
                 ],
               ),
-              IconButton(
-                icon: const Icon(Icons.playlist_add, color: Colors.white),
-                onPressed: onAddToPlaylist,
-              ),
-            ],
-          ),
-          const Spacer(),
-          Center(
-            child: Container(
-              width: MediaQuery.of(context).size.width * 0.8,
-              height: MediaQuery.of(context).size.width * 0.8,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.6),
-                    blurRadius: 30,
-                    offset: const Offset(0, 10),
-                  )
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: Image.network(
-                  song.thumbnailUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => Container(
-                    color: Colors.grey.shade900,
-                    child: const Icon(Icons.music_note,
-                        size: 80, color: Colors.white24),
+              const SizedBox(height: 16),
+              // Albüm Kapağı (Taşmayı önlemek için esnek boyutlandırıldı)
+              Center(
+                child: Container(
+                  width: MediaQuery.of(context).size.width > 500
+                      ? 320
+                      : MediaQuery.of(context).size.width * 0.72,
+                  height: MediaQuery.of(context).size.width > 500
+                      ? 320
+                      : MediaQuery.of(context).size.width * 0.72,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        blurRadius: 30,
+                        offset: const Offset(0, 10),
+                      )
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Image.network(
+                      song.thumbnailUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Container(
+                        color: Colors.grey.shade900,
+                        child: const Icon(Icons.music_note,
+                            size: 80, color: Colors.white24),
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
-          const Spacer(),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          song.artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Colors.white54,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.video_library_rounded,
+                        color: Color(0xFF00E5FF), size: 26),
+                    tooltip: 'Videoyu Arkada Oynat',
+                    onPressed: onPlayVideoBackground,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.offline_pin,
+                        color: Color(0xFFFF2A55), size: 26),
+                    tooltip: 'Önbelleğe Al',
+                    onPressed: () => onDownload(true),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.download,
+                        color: Color(0xFF1DB954), size: 26),
+                    tooltip: 'Telefona İndir',
+                    onPressed: () => onDownload(false),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  trackHeight: 4,
+                  thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                  overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+                  activeTrackColor: const Color(0xFF1DB954),
+                  inactiveTrackColor: Colors.white24,
+                  thumbColor: Colors.white,
+                ),
+                child: Slider(
+                  value: position.inMilliseconds
+                      .toDouble()
+                      .clamp(0.0, totalDuration.inMilliseconds.toDouble()),
+                  max: totalDuration.inMilliseconds > 0
+                      ? totalDuration.inMilliseconds.toDouble()
+                      : 1.0,
+                  onChanged: (val) {
+                    audioPlayer.seek(Duration(milliseconds: val.toInt()));
+                  },
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      song.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      song.artist,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        color: Colors.white54,
-                      ),
-                    ),
+                    Text(_formatDuration(position),
+                        style:
+                            const TextStyle(color: Colors.white54, fontSize: 12)),
+                    Text(_formatDuration(totalDuration),
+                        style:
+                            const TextStyle(color: Colors.white54, fontSize: 12)),
                   ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.video_library_rounded,
-                    color: Color(0xFF00E5FF), size: 28),
-                tooltip: 'Videoyu Arkada Oynat',
-                onPressed: onPlayVideoBackground,
-              ),
-              IconButton(
-                icon: const Icon(Icons.offline_pin,
-                    color: Color(0xFFFF2A55), size: 28),
-                tooltip: 'Önbelleğe Al',
-                onPressed: () => onDownload(true),
-              ),
-              IconButton(
-                icon: const Icon(Icons.download,
-                    color: Color(0xFF1DB954), size: 28),
-                tooltip: 'Telefona İndir',
-                onPressed: () => onDownload(false),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 4,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-              activeTrackColor: const Color(0xFF1DB954),
-              inactiveTrackColor: Colors.white24,
-              thumbColor: Colors.white,
-            ),
-            child: Slider(
-              value: position.inMilliseconds
-                  .toDouble()
-                  .clamp(0.0, totalDuration.inMilliseconds.toDouble()),
-              max: totalDuration.inMilliseconds > 0
-                  ? totalDuration.inMilliseconds.toDouble()
-                  : 1.0,
-              onChanged: (val) {
-                audioPlayer.seek(Duration(milliseconds: val.toInt()));
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(_formatDuration(position),
-                    style:
-                        const TextStyle(color: Colors.white54, fontSize: 12)),
-                Text(_formatDuration(totalDuration),
-                    style:
-                        const TextStyle(color: Colors.white54, fontSize: 12)),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              IconButton(
-                icon: Icon(
-                  Icons.shuffle_rounded,
-                  color: isShuffle ? const Color(0xFF1DB954) : Colors.white38,
-                ),
-                onPressed: onToggleShuffle,
-              ),
-              IconButton(
-                icon: const Icon(Icons.skip_previous_rounded,
-                    color: Colors.white, size: 38),
-                onPressed: onPrev,
-              ),
-              Container(
-                decoration: const BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white,
-                ),
-                child: isBuffering
-                    ? const Padding(
-                        padding: EdgeInsets.all(14.0),
-                        child: SizedBox(
-                          width: 28,
-                          height: 28,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            color: Colors.black,
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: Icon(
+                      Icons.shuffle_rounded,
+                      color: isShuffle ? const Color(0xFF1DB954) : Colors.white38,
+                    ),
+                    onPressed: onToggleShuffle,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.skip_previous_rounded,
+                        color: Colors.white, size: 38),
+                    onPressed: onPrev,
+                  ),
+                  Container(
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.white,
+                    ),
+                    child: isBuffering
+                        ? const Padding(
+                            padding: EdgeInsets.all(14.0),
+                            child: SizedBox(
+                              width: 28,
+                              height: 28,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Colors.black,
+                              ),
+                            ),
+                          )
+                        : IconButton(
+                            icon: Icon(
+                              isPlaying
+                                  ? Icons.pause_rounded
+                                  : Icons.play_arrow_rounded,
+                              color: Colors.black,
+                              size: 36,
+                            ),
+                            onPressed: onTogglePlay,
                           ),
-                        ),
-                      )
-                    : IconButton(
-                        icon: Icon(
-                          isPlaying
-                              ? Icons.pause_rounded
-                              : Icons.play_arrow_rounded,
-                          color: Colors.black,
-                          size: 36,
-                        ),
-                        onPressed: onTogglePlay,
-                      ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.skip_next_rounded,
+                        color: Colors.white, size: 38),
+                    onPressed: onNext,
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      loopMode == LoopMode.one
+                          ? Icons.repeat_one_rounded
+                          : Icons.repeat_rounded,
+                      color: loopMode != LoopMode.off
+                          ? const Color(0xFF1DB954)
+                          : Colors.white38,
+                    ),
+                    onPressed: onToggleLoop,
+                  ),
+                ],
               ),
-              IconButton(
-                icon: const Icon(Icons.skip_next_rounded,
-                    color: Colors.white, size: 38),
-                onPressed: onNext,
-              ),
-              IconButton(
-                icon: Icon(
-                  loopMode == LoopMode.one
-                      ? Icons.repeat_one_rounded
-                      : Icons.repeat_rounded,
-                  color: loopMode != LoopMode.off
-                      ? const Color(0xFF1DB954)
-                      : Colors.white38,
-                ),
-                onPressed: onToggleLoop,
-              ),
+              const SizedBox(height: 16),
             ],
           ),
-          const SizedBox(height: 20),
-        ],
+        ),
       ),
     );
   }
