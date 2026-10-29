@@ -312,9 +312,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     try {
       final manifest =
           await _ytExplode.videos.streamsClient.getManifest(videoId);
-      if (isVideo) {
-        final videoStream = manifest.muxed.withHighestBitrate();
-        return videoStream.url.toString();
+      // YouTube son kısıtlamalarında audioOnly ve videoOnly akışlarına 403 Forbidden döndürmektedir.
+      // muxed (hem ses hem video barındıran tag 18 mp4 vb.) akışları ise %100 açık ve 200 OK ile sorunsuz çalmaktadır.
+      if (manifest.muxed.isNotEmpty) {
+        return manifest.muxed.withHighestBitrate().url.toString();
       }
       final mp4Audio = manifest.audioOnly.where((s) => s.container.name == 'mp4');
       if (mp4Audio.isNotEmpty) {
@@ -525,12 +526,12 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         // Telefon (Android/iOS): Sıfır sunucu, tamamen telefonda doğrudan indirme
         final manifest =
             await _ytExplode.videos.streamsClient.getManifest(song.id);
-        // MP3 butonu tıklandığında MP3/M4A ses akışı, Video tıklandığında muxed video akışı seçilir
-        final streamInfo = isVideo
+        // YouTube, audioOnly ve videoOnly ayrık akışlarına 403 Forbidden uygulamaktadır.
+        // Bu yüzden hem Video hem Ses/MP3 için doğrudan 200 OK yanıt veren muxed akışını seçiyoruz.
+        // Muxed MP4 dosyası Android/iOS tarafından hem ses çalarlarda hem video oynatıcılarda mükemmel çalınır.
+        final streamInfo = manifest.muxed.isNotEmpty
             ? manifest.muxed.withHighestBitrate()
-            : (manifest.audioOnly.where((s) => s.container.name == 'mp4').isNotEmpty
-                ? manifest.audioOnly.where((s) => s.container.name == 'mp4').withHighestBitrate()
-                : manifest.audioOnly.withHighestBitrate());
+            : manifest.audioOnly.withHighestBitrate();
 
         final totalBytes = streamInfo.size.totalBytes;
         final stream = _ytExplode.videos.streamsClient.get(streamInfo);
@@ -550,8 +551,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
         final sanitizedTitle =
             song.title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
-        // Uzantı: video ise .mp4, ses ise telefonların %100 tanıdığı .m4a
-        final ext = isVideo ? 'mp4' : (streamInfo.container.name == 'mp4' ? 'm4a' : 'mp3');
+        // Uzantı: video için de ses için de Android'in %100 yerel tanıdığı .mp4
+        final ext = 'mp4';
         final filePath = '${dir.path}/$sanitizedTitle.$ext';
         final file = io.File(filePath);
         final output = file.openWrite();
