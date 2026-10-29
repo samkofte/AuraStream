@@ -11,6 +11,8 @@
     <application
         android:label="AuraStream"
         android:name="${applicationName}"
+        android:requestLegacyExternalStorage="true"
+        android:supportsRtl="true"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name="com.ryanheise.audioservice.AudioServiceActivity"

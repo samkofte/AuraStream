@@ -9,7 +9,9 @@ import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:web/web.dart' as web;
+import 'video_dialog.dart';
+import 'web_downloader.dart';
+import 'yt_scraper.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 
 // Local Notification Plugin for Download Progress Tracking
@@ -166,8 +168,47 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   Duration _position = Duration.zero;
   Duration _totalDuration = Duration.zero;
 
-  // Active Download Tasks Tracking in Notification Bar
+  // Active Download Tasks Tracking in Notification Bar & UI
   final Map<String, double> _activeDownloadProgress = {};
+  final Map<String, StreamSubscription<List<int>>> _downloadSubscriptions = {};
+  final Map<String, SongItem> _activeDownloadingSongs = {};
+  final Map<String, String> _downloadFilePaths = {};
+
+  void _cancelDownload(String songId) async {
+    if (_downloadSubscriptions.containsKey(songId)) {
+      await _downloadSubscriptions[songId]?.cancel();
+      _downloadSubscriptions.remove(songId);
+    }
+    final notifId = songId.hashCode.abs() % 100000;
+    try {
+      await flutterLocalNotificationsPlugin.cancel(id: notifId);
+    } catch (_) {}
+
+    // Kısmi dosyayı temizle
+    final partialPath = _downloadFilePaths[songId];
+    if (partialPath != null) {
+      try {
+        final f = io.File(partialPath);
+        if (f.existsSync()) f.deleteSync();
+      } catch (_) {}
+      _downloadFilePaths.remove(songId);
+    }
+
+    setState(() {
+      _activeDownloadProgress.remove(songId);
+      _activeDownloadingSongs.remove(songId);
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('İndirme iptal edildi.'),
+          backgroundColor: Colors.orangeAccent,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
 
   @override
   void initState() {
@@ -275,6 +316,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         final videoStream = manifest.muxed.withHighestBitrate();
         return videoStream.url.toString();
       }
+      final mp4Audio = manifest.audioOnly.where((s) => s.container.name == 'mp4');
+      if (mp4Audio.isNotEmpty) {
+        return mp4Audio.withHighestBitrate().url.toString();
+      }
       final audioStream = manifest.audioOnly.withHighestBitrate();
       return audioStream.url.toString();
     } catch (e) {
@@ -301,6 +346,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     }
 
     try {
+      // Önceki yüklemeyi durdurarak çakışmayı ve abort/interruption hatasını önle
+      try {
+        await _audioPlayer.stop();
+      } catch (_) {}
+
       if (song.localFilePath != null &&
           !kIsWeb &&
           io.File(song.localFilePath!).existsSync()) {
@@ -320,26 +370,26 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             await _resolveStreamUrl(song.id, isVideo: isVideo);
         if (streamUrl != null) {
           if (kIsWeb) {
-            // Web için doğrudan setUrl en kararlı ve kesintisiz yöntemdir
             await _audioPlayer.setUrl(streamUrl);
           } else {
-            final audioSource = AudioSource.uri(
-              Uri.parse(streamUrl),
-              tag: MediaItem(
-                id: song.id,
-                album: isVideo ? 'AuraStream Video Sesi' : 'AuraStream Canlı',
-                title: song.title,
-                artist: song.artist,
-                artUri: Uri.tryParse(song.thumbnailUrl),
-              ),
+            // Android Media3 / ExoPlayer için doğrudan setUrl en stabil ve kesintisiz çözümdür
+            await _audioPlayer.setUrl(
+              streamUrl,
+              headers: {
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Accept': '*/*',
+                'Range': 'bytes=0-',
+              },
             );
-            await _audioPlayer.setAudioSource(audioSource);
           }
         } else {
           throw Exception("Yayın adresi çözülemedi");
         }
       }
       _audioPlayer.play();
+    } on PlayerInterruptedException catch (_) {
+      // Kullanıcı şarkıyı hızlıca değiştirdiğinde oluşan iptal durumunu sessizce karşıla
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -452,13 +502,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             ? 'http://127.0.0.1:5050/download_video_max/${song.id}'
             : 'http://127.0.0.1:5050/download_audio_max/${song.id}';
 
-        final anchor =
-            web.document.createElement('a') as web.HTMLAnchorElement;
-        anchor.href = downloadUrl;
-        anchor.download = isVideo ? '${song.title}.mp4' : '${song.title}.m4a';
-        web.document.body?.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
+        final fileName = isVideo ? '${song.title}.mp4' : '${song.title}.m4a';
+        triggerWebDownload(downloadUrl, fileName);
 
         // Web'de de indirme listesine anında kaydet
         final downloadedItem = SongItem(
@@ -480,51 +525,88 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         // Telefon (Android/iOS): Sıfır sunucu, tamamen telefonda doğrudan indirme
         final manifest =
             await _ytExplode.videos.streamsClient.getManifest(song.id);
+        // MP3 butonu tıklandığında MP3/M4A ses akışı, Video tıklandığında muxed video akışı seçilir
         final streamInfo = isVideo
             ? manifest.muxed.withHighestBitrate()
-            : manifest.audioOnly.withHighestBitrate();
+            : (manifest.audioOnly.where((s) => s.container.name == 'mp4').isNotEmpty
+                ? manifest.audioOnly.where((s) => s.container.name == 'mp4').withHighestBitrate()
+                : manifest.audioOnly.withHighestBitrate());
 
         final totalBytes = streamInfo.size.totalBytes;
         final stream = _ytExplode.videos.streamsClient.get(streamInfo);
 
-        final dir = isOfflineCache
-            ? await getApplicationSupportDirectory()
-            : (await getDownloadsDirectory() ??
-                await getApplicationDocumentsDirectory());
+        // Doğrudan telefonun erişilebilir Download veya Music klasörü
+        io.Directory dir;
+        final publicDownloadDir = io.Directory('/storage/emulated/0/Download');
+        final publicMusicDir = io.Directory('/storage/emulated/0/Music');
+
+        if (publicDownloadDir.existsSync()) {
+          dir = publicDownloadDir;
+        } else if (publicMusicDir.existsSync()) {
+          dir = publicMusicDir;
+        } else {
+          dir = (await getExternalStorageDirectory()) ?? (await getApplicationDocumentsDirectory());
+        }
 
         final sanitizedTitle =
-            song.title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
-        final ext = isVideo ? 'mp4' : streamInfo.container.name;
+            song.title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+        // Uzantı: video ise .mp4, ses ise telefonların %100 tanıdığı .m4a
+        final ext = isVideo ? 'mp4' : (streamInfo.container.name == 'mp4' ? 'm4a' : 'mp3');
         final filePath = '${dir.path}/$sanitizedTitle.$ext';
         final file = io.File(filePath);
         final output = file.openWrite();
 
+        _downloadFilePaths[song.id] = filePath;
+        setState(() {
+          _activeDownloadingSongs[song.id] = song;
+          _activeDownloadProgress[song.id] = 0.01;
+        });
+
         int downloaded = 0;
         int lastReportedPercent = -1;
+        final completer = Completer<void>();
 
-        await for (final chunk in stream) {
-          output.add(chunk);
-          downloaded += chunk.length;
-          final currentPercent = ((downloaded / totalBytes) * 100).toInt();
-          if (currentPercent != lastReportedPercent &&
-              currentPercent % 5 == 0) {
-            lastReportedPercent = currentPercent;
-            setState(() {
-              _activeDownloadProgress[song.id] = downloaded / totalBytes;
-            });
-            await _updateNotificationProgress(
-                notifId, song.title, currentPercent, 100);
-          }
-        }
+        final sub = stream.listen(
+          (chunk) {
+            output.add(chunk);
+            downloaded += chunk.length;
+            final currentPercent = ((downloaded / totalBytes) * 100).toInt();
+            if (currentPercent != lastReportedPercent &&
+                currentPercent % 5 == 0) {
+              lastReportedPercent = currentPercent;
+              if (mounted) {
+                setState(() {
+                  _activeDownloadProgress[song.id] = downloaded / totalBytes;
+                });
+              }
+              _updateNotificationProgress(
+                  notifId, song.title, currentPercent, 100);
+            }
+          },
+          onError: (e) {
+            completer.completeError(e);
+          },
+          onDone: () {
+            completer.complete();
+          },
+          cancelOnError: true,
+        );
+
+        _downloadSubscriptions[song.id] = sub;
+
+        await completer.future;
 
         await output.flush();
         await output.close();
+        _downloadSubscriptions.remove(song.id);
+        _downloadFilePaths.remove(song.id);
 
         // Final Complete Notification
         await _updateNotificationProgress(notifId, song.title, 100, 100);
 
         setState(() {
           _activeDownloadProgress.remove(song.id);
+          _activeDownloadingSongs.remove(song.id);
         });
 
         final downloadedItem = SongItem(
@@ -556,8 +638,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         );
       }
     } catch (e) {
+      _downloadSubscriptions.remove(song.id);
+      _downloadFilePaths.remove(song.id);
       setState(() {
         _activeDownloadProgress.remove(song.id);
+        _activeDownloadingSongs.remove(song.id);
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -568,6 +653,18 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         );
       }
     }
+  }
+
+  void _showVideoPlayer(String title, String videoPathOrUrl, {bool isLocalFile = false}) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.85),
+      builder: (ctx) => ModernVideoPlayerDialog(
+        title: title,
+        source: videoPathOrUrl,
+        isLocalFile: isLocalFile,
+      ),
+    );
   }
 
   void _showAddToPlaylistDialog(SongItem song) {
@@ -778,6 +875,19 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     downloadProgress: _activeDownloadProgress,
                     onPlaySong: (s) => _playSong(s),
                     onPlayVideoBackground: (s) => _playSong(s, isVideo: true),
+                    onWatchVideoOnline: (s) async {
+                      // İndirmeden doğrudan online videoyu izle
+                      final streamUrl = await _resolveStreamUrl(s.id, isVideo: true);
+                      if (streamUrl != null) {
+                        _showVideoPlayer(s.title, streamUrl, isLocalFile: false);
+                      } else {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Video akışı bulunamadı')),
+                          );
+                        }
+                      }
+                    },
                     onAddToQueue: _addToQueue,
                     onAddToPlaylist: _showAddToPlaylistDialog,
                     onDownload: (s) =>
@@ -809,7 +919,19 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   ),
                   _DownloadsCacheTab(
                     downloadedSongs: _downloadedSongs,
-                    onPlaySong: (s) => _playSong(s),
+                    activeDownloadingSongs: _activeDownloadingSongs,
+                    activeDownloadProgress: _activeDownloadProgress,
+                    onCancelDownload: _cancelDownload,
+                    onPlaySong: (s) {
+                      if (s.localFilePath != null &&
+                          s.localFilePath!.endsWith('.mp4')) {
+                        // İndirilen MP4 video ise dahili modern oynatıcıda aç
+                        _showVideoPlayer(s.title, s.localFilePath!, isLocalFile: true);
+                      } else {
+                        // Müzik/ses dosyası ise arka plan AuraStream çalarında çal
+                        _playSong(s);
+                      }
+                    },
                     onDeleteSong: (s) {
                       setState(() =>
                           _downloadedSongs.removeWhere((i) => i.id == s.id));
@@ -879,6 +1001,7 @@ class _SearchTab extends StatefulWidget {
   final Map<String, double> downloadProgress;
   final Function(SongItem) onPlaySong;
   final Function(SongItem) onPlayVideoBackground;
+  final Function(SongItem) onWatchVideoOnline;
   final Function(SongItem) onAddToQueue;
   final Function(SongItem) onAddToPlaylist;
   final Function(SongItem) onDownload;
@@ -889,6 +1012,7 @@ class _SearchTab extends StatefulWidget {
     required this.downloadProgress,
     required this.onPlaySong,
     required this.onPlayVideoBackground,
+    required this.onWatchVideoOnline,
     required this.onAddToQueue,
     required this.onAddToPlaylist,
     required this.onDownload,
@@ -1008,22 +1132,30 @@ class _SearchTabState extends State<_SearchTab> {
         } catch (_) {}
       }
 
-      // Eğer mobil cihazdaysa veya doğrudan bağlantı açıksa YoutubeExplode çalıştır
+      // 1. Doğrudan sıfır sunucuyla YouTube scraping (kesintisiz & anlık arama)
+      final rawItems = await FastYTScraper.search(query);
+      if (rawItems.isNotEmpty) {
+        items = rawItems.map((m) => SongItem.fromJson(m)).toList();
+      }
+
+      // 2. Yedek olarak YoutubeExplode
       if (items.isEmpty) {
-        final ytExplode = yt.YoutubeExplode();
-        final searchResult = await ytExplode.search.search(query);
-        items = searchResult.map((video) {
-          return SongItem(
-            id: video.id.value,
-            title: video.title,
-            artist: video.author,
-            duration: video.duration != null
-                ? '${video.duration!.inMinutes}:${(video.duration!.inSeconds % 60).toString().padLeft(2, '0')}'
-                : '--:--',
-            thumbnailUrl: video.thumbnails.mediumResUrl,
-          );
-        }).toList();
-        ytExplode.close();
+        try {
+          final ytExplode = yt.YoutubeExplode();
+          final searchResult = await ytExplode.search.search(query);
+          items = searchResult.map((video) {
+            return SongItem(
+              id: video.id.value,
+              title: video.title,
+              artist: video.author,
+              duration: video.duration != null
+                  ? '${video.duration!.inMinutes}:${(video.duration!.inSeconds % 60).toString().padLeft(2, '0')}'
+                  : '--:--',
+              thumbnailUrl: video.thumbnails.mediumResUrl,
+            );
+          }).toList();
+          ytExplode.close();
+        } catch (_) {}
       }
 
       if (mounted) {
@@ -1219,6 +1351,7 @@ class _SearchTabState extends State<_SearchTab> {
                   onPlay: () => widget.onPlaySong(song),
                   onPlayVideoBackground: () =>
                       widget.onPlayVideoBackground(song),
+                  onWatchVideoOnline: () => widget.onWatchVideoOnline(song),
                   onAddToQueue: () => widget.onAddToQueue(song),
                   onAddToPlaylist: () => widget.onAddToPlaylist(song),
                   onDownload: () => widget.onDownload(song),
@@ -1258,6 +1391,7 @@ class _SpotifySongCard extends StatelessWidget {
   final double? downloadProgress;
   final VoidCallback onPlay;
   final VoidCallback onPlayVideoBackground;
+  final VoidCallback onWatchVideoOnline;
   final VoidCallback onAddToQueue;
   final VoidCallback onAddToPlaylist;
   final VoidCallback onDownload;
@@ -1269,6 +1403,7 @@ class _SpotifySongCard extends StatelessWidget {
     this.downloadProgress,
     required this.onPlay,
     required this.onPlayVideoBackground,
+    required this.onWatchVideoOnline,
     required this.onAddToQueue,
     required this.onAddToPlaylist,
     required this.onDownload,
@@ -1278,15 +1413,13 @@ class _SpotifySongCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 4),
-      decoration: BoxDecoration(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        children: [
-          ListTile(
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 4),
+        child: Column(
+          children: [
+            ListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             leading: ClipRRect(
               borderRadius: BorderRadius.circular(6),
@@ -1347,12 +1480,24 @@ class _SpotifySongCard extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                   onSelected: (val) {
+                    if (val == 'watch_video') onWatchVideoOnline();
                     if (val == 'cache') onCache();
                     if (val == 'playlist') onAddToPlaylist();
                     if (val == 'queue') onAddToQueue();
                     if (val == 'video_bg') onPlayVideoBackground();
                   },
                   itemBuilder: (ctx) => [
+                    const PopupMenuItem(
+                      value: 'watch_video',
+                      child: Row(
+                        children: [
+                          Icon(Icons.play_circle_outline,
+                              color: Color(0xFF00E5FF), size: 18),
+                          SizedBox(width: 10),
+                          Text('Videoyu İzle (İndirmeden)'),
+                        ],
+                      ),
+                    ),
                     const PopupMenuItem(
                       value: 'cache',
                       child: Row(
@@ -1412,8 +1557,9 @@ class _SpotifySongCard extends StatelessWidget {
             ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 class _MytMiniButton extends StatelessWidget {
@@ -1462,56 +1608,7 @@ class _MytMiniButton extends StatelessWidget {
   }
 }
 
-class _ModernActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
 
-  const _ModernActionButton({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withValues(alpha: 0.3), width: 1),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: color, size: 16),
-            if (label.isNotEmpty) ...[
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ]
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 // ==================== PLAYLISTS TAB ====================
 class _PlaylistsTab extends StatelessWidget {
@@ -1700,11 +1797,17 @@ class _PlaylistsTab extends StatelessWidget {
 // ==================== DOWNLOADS & CACHE TAB ====================
 class _DownloadsCacheTab extends StatelessWidget {
   final List<SongItem> downloadedSongs;
+  final Map<String, SongItem> activeDownloadingSongs;
+  final Map<String, double> activeDownloadProgress;
+  final Function(String) onCancelDownload;
   final Function(SongItem) onPlaySong;
   final Function(SongItem) onDeleteSong;
 
   const _DownloadsCacheTab({
     required this.downloadedSongs,
+    required this.activeDownloadingSongs,
+    required this.activeDownloadProgress,
+    required this.onCancelDownload,
     required this.onPlaySong,
     required this.onDeleteSong,
   });
@@ -1744,8 +1847,98 @@ class _DownloadsCacheTab extends StatelessWidget {
             style: TextStyle(color: Colors.white54, fontSize: 13),
           ),
           const SizedBox(height: 16),
+          // Devam Eden Aktif İndirmeler Listesi (İptal Butonlu)
+          if (activeDownloadingSongs.isNotEmpty) ...[
+            const Row(
+              children: [
+                Icon(Icons.downloading_rounded, color: Color(0xFF1DB954), size: 20),
+                SizedBox(width: 8),
+                Text(
+                  'Devam Eden İndirmeler',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: activeDownloadingSongs.length,
+              itemBuilder: (ctx, i) {
+                final songId = activeDownloadingSongs.keys.elementAt(i);
+                final song = activeDownloadingSongs[songId]!;
+                final progress = activeDownloadProgress[songId] ?? 0.0;
+                final percent = (progress * 100).toInt();
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1C1C26),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFF1DB954).withValues(alpha: 0.3)),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: Image.network(
+                              song.thumbnailUrl,
+                              width: 40,
+                              height: 40,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  song.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  '%$percent indiriliyor • ${song.artist}',
+                                  style: const TextStyle(color: Color(0xFF1DB954), fontSize: 11),
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.cancel_rounded, color: Colors.redAccent, size: 26),
+                            tooltip: 'İndirmeyi İptal Et',
+                            onPressed: () => onCancelDownload(songId),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      LinearProgressIndicator(
+                        value: progress > 0 ? progress : null,
+                        backgroundColor: Colors.white10,
+                        valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF1DB954)),
+                        minHeight: 3,
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 14),
+            const Divider(color: Colors.white10),
+            const SizedBox(height: 10),
+          ],
           Expanded(
-            child: downloadedSongs.isEmpty
+            child: downloadedSongs.isEmpty && activeDownloadingSongs.isEmpty
                 ? const Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
