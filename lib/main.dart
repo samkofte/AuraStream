@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io' as io;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
@@ -17,6 +18,21 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart' as yt;
 // Local Notification Plugin for Download Progress Tracking
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
+
+const MethodChannel _externalPlayerChannel =
+    MethodChannel('com.example.lfm_music_app/external_player');
+
+Future<void> openWithSystemPlayer(String filePath, {bool isVideo = false}) async {
+  if (kIsWeb) return;
+  try {
+    await _externalPlayerChannel.invokeMethod('playWithSystemPlayer', {
+      'filePath': filePath,
+      'isVideo': isVideo,
+    });
+  } catch (e) {
+    debugPrint('Sistem oynatıcı açılamadı: $e');
+  }
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,6 +54,21 @@ Future<void> main() async {
 
       await flutterLocalNotificationsPlugin.initialize(
         settings: initializationSettings,
+        onDidReceiveNotificationResponse: (NotificationResponse response) {
+          final payload = response.payload;
+          if (payload != null && payload.isNotEmpty) {
+            try {
+              final Map<String, dynamic> data = jsonDecode(payload);
+              final path = data['path'] as String?;
+              final isVideo = data['isVideo'] as bool? ?? false;
+              if (path != null && path.isNotEmpty) {
+                openWithSystemPlayer(path, isVideo: isVideo);
+              }
+            } catch (_) {
+              openWithSystemPlayer(payload, isVideo: false);
+            }
+          }
+        },
       );
     } catch (e) {
       debugPrint('Background audio init failed: $e');
@@ -454,28 +485,32 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   // Background Download Tracking with Android Notification Bar
   Future<void> _updateNotificationProgress(
-      int notifId, String title, int progress, int maxProgress) async {
+      int notifId, String title, int progress, int maxProgress,
+      {String? payload}) async {
     if (kIsWeb) return;
     try {
+      final isFinished = progress >= maxProgress;
       final androidPlatformChannelSpecifics = AndroidNotificationDetails(
         'download_channel',
         'İndirme Takibi',
         channelDescription: 'AuraStream indirme ilerleme bildirimleri',
-        importance: Importance.low,
-        priority: Priority.low,
+        importance: isFinished ? Importance.high : Importance.low,
+        priority: isFinished ? Priority.high : Priority.low,
         onlyAlertOnce: true,
-        showProgress: true,
+        showProgress: !isFinished,
         maxProgress: maxProgress,
         progress: progress,
-        ongoing: progress < maxProgress,
+        ongoing: !isFinished,
+        autoCancel: isFinished,
       );
       final platformChannelSpecifics =
           NotificationDetails(android: androidPlatformChannelSpecifics);
       await flutterLocalNotificationsPlugin.show(
         id: notifId,
-        title: progress < maxProgress ? 'İndiriliyor: $title' : '✓ İndirme Tamamlandı',
-        body: progress < maxProgress ? '%$progress tamamlandı' : title,
+        title: !isFinished ? 'İndiriliyor: $title' : '✓ İndirme Tamamlandı (Dinlemek için dokunun)',
+        body: !isFinished ? '%$progress tamamlandı' : title,
         notificationDetails: platformChannelSpecifics,
+        payload: payload,
       );
     } catch (_) {}
   }
@@ -602,8 +637,13 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         _downloadSubscriptions.remove(song.id);
         _downloadFilePaths.remove(song.id);
 
-        // Final Complete Notification
-        await _updateNotificationProgress(notifId, song.title, 100, 100);
+        // Final Complete Notification - Bildirime basılınca sistem oynatıcıda açılsın
+        final notifPayload = jsonEncode({
+          'path': filePath,
+          'isVideo': isVideo,
+        });
+        await _updateNotificationProgress(notifId, song.title, 100, 100,
+            payload: notifPayload);
 
         setState(() {
           _activeDownloadProgress.remove(song.id);
@@ -924,12 +964,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     activeDownloadProgress: _activeDownloadProgress,
                     onCancelDownload: _cancelDownload,
                     onPlaySong: (s) {
-                      if (s.localFilePath != null &&
-                          s.localFilePath!.endsWith('.mp4')) {
-                        // İndirilen MP4 video ise dahili modern oynatıcıda aç
-                        _showVideoPlayer(s.title, s.localFilePath!, isLocalFile: true);
+                      // Eğer parça indirilmiş bir dosya ise ve kullanıcı dinlemek istiyorsa
+                      final isVideoFormat = s.format.contains('Video') || s.format.contains('720p');
+                      if (s.localFilePath != null && io.File(s.localFilePath!).existsSync()) {
+                        if (isVideoFormat) {
+                          // İndirilen MP4 video ise dahili modern oynatıcıda izle
+                          _showVideoPlayer(s.title, s.localFilePath!, isLocalFile: true);
+                        } else {
+                          // MP3 / Ses olarak indirilmişse hem AuraStream'de çal hem de sistem oynatıcıda açma opsiyonu sun
+                          _playSong(s);
+                        }
                       } else {
-                        // Müzik/ses dosyası ise arka plan AuraStream çalarında çal
                         _playSong(s);
                       }
                     },
@@ -1996,6 +2041,16 @@ class _DownloadsCacheTab extends StatelessWidget {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              if (item.localFilePath != null)
+                                IconButton(
+                                  icon: const Icon(Icons.open_in_new_rounded,
+                                      color: Color(0xFF00E5FF), size: 22),
+                                  tooltip: 'Telefonun Kendi Oynatıcısında Aç',
+                                  onPressed: () {
+                                    final isVideo = item.format.contains('Video') || item.format.contains('720p');
+                                    openWithSystemPlayer(item.localFilePath!, isVideo: isVideo);
+                                  },
+                                ),
                               IconButton(
                                 icon: const Icon(Icons.play_circle_fill,
                                     color: Color(0xFF1DB954), size: 32),
