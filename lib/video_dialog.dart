@@ -2,11 +2,13 @@ import 'dart:io' as io;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
+import 'quality_service.dart';
 
 class ModernVideoPlayerDialog extends StatefulWidget {
   final String title;
   final String source;
   final bool isLocalFile;
+  final String? videoId; // If provided, quality switcher is enabled
   final VoidCallback? onPlayAudioBackground;
 
   const ModernVideoPlayerDialog({
@@ -14,6 +16,7 @@ class ModernVideoPlayerDialog extends StatefulWidget {
     required this.title,
     required this.source,
     required this.isLocalFile,
+    this.videoId,
     this.onPlayAudioBackground,
   });
 
@@ -28,22 +31,46 @@ class _ModernVideoPlayerDialogState extends State<ModernVideoPlayerDialog> {
   bool _showControls = true;
   bool _isFullScreen = false;
 
+  // Quality switcher state
+  List<VideoQualityOption> _availableQualities = [];
+  String _currentQualityLabel = 'Otomatik (Standart)';
+
   @override
   void initState() {
     super.initState();
-    _initVideo();
+    _initVideo(widget.source);
+    if (!widget.isLocalFile && widget.videoId != null) {
+      _loadQualities();
+    }
   }
 
-  Future<void> _initVideo() async {
+  Future<void> _loadQualities() async {
+    try {
+      final list = await QualityService.getVideoQualities(widget.videoId!);
+      if (mounted) {
+        setState(() {
+          _availableQualities = list;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _initVideo(String src) async {
+    setState(() {
+      _isInitialized = false;
+      _hasError = false;
+    });
+
     try {
       if (widget.isLocalFile) {
-        _controller = VideoPlayerController.file(io.File(widget.source));
+        _controller = VideoPlayerController.file(io.File(src));
       } else {
         _controller = VideoPlayerController.networkUrl(
-          Uri.parse(widget.source),
+          Uri.parse(src),
           httpHeaders: {
             'User-Agent':
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'com.google.android.youtube/19.29.35 (Linux; U; Android 14) gzip',
+            'Accept': '*/*',
           },
         );
       }
@@ -57,6 +84,102 @@ class _ModernVideoPlayerDialogState extends State<ModernVideoPlayerDialog> {
     } catch (e) {
       if (mounted) setState(() => _hasError = true);
     }
+  }
+
+  Future<void> _changeQuality(VideoQualityOption opt) async {
+    final curPos = _controller.value.position;
+    final isPlaying = _controller.value.isPlaying;
+    await _controller.pause();
+    await _controller.dispose();
+
+    setState(() {
+      _currentQualityLabel = opt.label;
+    });
+
+    await _initVideo(opt.videoStream.url.toString());
+    if (_isInitialized) {
+      await _controller.seekTo(curPos);
+      if (isPlaying) await _controller.play();
+    }
+  }
+
+  void _showQualitySelectorDialog() {
+    if (_availableQualities.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF181824),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.hd_rounded, color: Color(0xFF00E5FF), size: 24),
+                      SizedBox(width: 10),
+                      Text(
+                        'Video Kalitesi Seçin',
+                        style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white70),
+                    onPressed: () => Navigator.pop(ctx),
+                  )
+                ],
+              ),
+              const Divider(color: Colors.white12),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: _availableQualities.length,
+                  itemBuilder: (c, idx) {
+                    final q = _availableQualities[idx];
+                    final isSelected = _currentQualityLabel == q.label;
+                    final isHighRes = q.label.contains('1080p') || q.label.contains('2K') || q.label.contains('4K');
+                    return ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                      leading: Icon(
+                        isHighRes ? Icons.high_quality_rounded : Icons.video_settings_rounded,
+                        color: isSelected ? const Color(0xFF00E5FF) : Colors.white38,
+                      ),
+                      title: Text(
+                        q.label,
+                        style: TextStyle(
+                          color: isSelected ? const Color(0xFF00E5FF) : Colors.white,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          fontSize: 14.5,
+                        ),
+                      ),
+                      subtitle: Text(
+                        'Boyut: ~${q.sizeText} ${q.isMuxed ? '• Doğrudan Akış' : '• Yüksek Çözünürlük'}',
+                        style: const TextStyle(color: Colors.white54, fontSize: 11.5),
+                      ),
+                      trailing: isSelected
+                          ? const Icon(Icons.check_circle_rounded, color: Color(0xFF00E5FF), size: 20)
+                          : null,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _changeQuality(q);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   void _toggleFullScreen() {
@@ -169,6 +292,13 @@ class _ModernVideoPlayerDialogState extends State<ModernVideoPlayerDialog> {
                           ),
                         ),
                       ),
+                      // Kalite Seçici Butonu
+                      if (_availableQualities.isNotEmpty)
+                        IconButton(
+                          icon: const Icon(Icons.settings_suggest_rounded, color: Color(0xFF00E5FF), size: 21),
+                          tooltip: 'Kalite: $_currentQualityLabel',
+                          onPressed: _showQualitySelectorDialog,
+                        ),
                       // Arka Planda Sesi Çal
                       if (widget.onPlayAudioBackground != null)
                         IconButton(
@@ -282,6 +412,35 @@ class _ModernVideoPlayerDialogState extends State<ModernVideoPlayerDialog> {
         child: _showControls
             ? Stack(
                 children: [
+                  // Kalite göstergesi pill
+                  if (!widget.isLocalFile && _availableQualities.isNotEmpty)
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: GestureDetector(
+                        onTap: _showQualitySelectorDialog,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFF00E5FF).withValues(alpha: 0.4)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.hd_rounded, color: Color(0xFF00E5FF), size: 14),
+                              const SizedBox(width: 4),
+                              Text(
+                                _currentQualityLabel,
+                                style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+
                   // Ortadaki Oynatma Kontrolleri
                   Center(
                     child: Row(

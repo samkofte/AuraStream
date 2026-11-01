@@ -10,6 +10,8 @@ import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'ffmpeg_downloader.dart';
+import 'quality_service.dart';
 import 'video_dialog.dart';
 import 'web_downloader.dart';
 import 'yt_scraper.dart';
@@ -696,7 +698,318 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     }
   }
 
-  void _showVideoPlayer(String title, String videoPathOrUrl, {bool isLocalFile = false}) {
+  Future<void> _startHighQualityVideoDownload(SongItem song, VideoQualityOption option) async {
+    final notifId = song.id.hashCode.abs() % 100000;
+    io.Directory dir;
+    final publicDownloadDir = io.Directory('/storage/emulated/0/Download');
+    final publicMusicDir = io.Directory('/storage/emulated/0/Music');
+
+    if (publicDownloadDir.existsSync()) {
+      dir = publicDownloadDir;
+    } else if (publicMusicDir.existsSync()) {
+      dir = publicMusicDir;
+    } else {
+      dir = (await getExternalStorageDirectory()) ?? (await getApplicationDocumentsDirectory());
+    }
+
+    setState(() {
+      _activeDownloadingSongs[song.id] = song;
+      _activeDownloadProgress[song.id] = 0.05;
+    });
+
+    _updateNotificationProgress(notifId, '${song.title} [${option.label}]', 5, 100);
+
+    try {
+      final finalPath = await LocalFFmpegDownloader.downloadAndMergeHighQualityVideo(
+        option: option,
+        videoTitle: song.title,
+        outputDirectory: dir,
+        onOverallProgress: (stageText, progress) {
+          if (mounted) {
+            setState(() {
+              _activeDownloadProgress[song.id] = progress;
+            });
+          }
+          final percent = (progress * 100).toInt();
+          _updateNotificationProgress(notifId, '${song.title} [${option.label}]', percent, 100);
+        },
+      );
+
+      // Notification Payload
+      final notifPayload = jsonEncode({
+        'path': finalPath,
+        'isVideo': true,
+      });
+      await _updateNotificationProgress(notifId, '${song.title} [${option.label}]', 100, 100, payload: notifPayload);
+
+      setState(() {
+        _activeDownloadProgress.remove(song.id);
+        _activeDownloadingSongs.remove(song.id);
+      });
+
+      final downloadedItem = SongItem(
+        id: song.id,
+        title: song.title,
+        artist: song.artist,
+        duration: song.duration,
+        thumbnailUrl: song.thumbnailUrl,
+        format: '${option.label} Video (FFmpeg)',
+        localFilePath: finalPath,
+        downloadDate: DateTime.now(),
+      );
+
+      setState(() {
+        _downloadedSongs.removeWhere((s) => s.id == song.id);
+        _downloadedSongs.insert(0, downloadedItem);
+      });
+      await _saveDownloads();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✓ ${option.label} Video FFmpeg ile birleştirildi ve kaydedildi!'),
+            backgroundColor: const Color(0xFF1DB954),
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _activeDownloadProgress.remove(song.id);
+        _activeDownloadingSongs.remove(song.id);
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('FFmpeg indirme hatası: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showVideoDownloadQualitySheet(SongItem song) async {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF181824),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return FutureBuilder<List<VideoQualityOption>>(
+          future: QualityService.getVideoQualities(song.id),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return Container(
+                padding: const EdgeInsets.all(32),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: Color(0xFF00E5FF)),
+                    SizedBox(height: 16),
+                    Text(
+                      'Video kaliteleri taranıyor (4K, 1080p, 720p)...',
+                      style: TextStyle(color: Colors.white70),
+                    )
+                  ],
+                ),
+              );
+            }
+
+            if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
+              return Container(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.error_outline, color: Colors.redAccent, size: 36),
+                    const SizedBox(height: 12),
+                    Text('Kalite seçenekleri alınamadı: ${snapshot.error}', style: const TextStyle(color: Colors.white70)),
+                    const SizedBox(height: 12),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF)),
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _downloadOrCacheSong(song, isVideo: true);
+                      },
+                      child: const Text('Varsayılan Kalitede İndir', style: TextStyle(color: Colors.black)),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            final qualities = snapshot.data!;
+            return Container(
+              padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.video_library_rounded, color: Color(0xFF00E5FF), size: 24),
+                          SizedBox(width: 10),
+                          Text(
+                            'Video Kalitesi Seçin (FFmpeg)',
+                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white70),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const Divider(color: Colors.white12),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: qualities.length,
+                      itemBuilder: (c, idx) {
+                        final q = qualities[idx];
+                        final isHighRes = q.label.contains('4K') || q.label.contains('2K') || q.label.contains('1080p');
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                          leading: Icon(
+                            isHighRes ? Icons.high_quality_rounded : Icons.ondemand_video_rounded,
+                            color: isHighRes ? const Color(0xFF00E5FF) : Colors.white70,
+                          ),
+                          title: Text(
+                            q.label,
+                            style: TextStyle(
+                              color: isHighRes ? const Color(0xFF00E5FF) : Colors.white,
+                              fontWeight: isHighRes ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                          subtitle: Text(
+                            'Boyut: ~${q.sizeText} ${q.isMuxed ? "• Hızlı İndir" : "• FFmpeg ile Ses Birleştirilir"}',
+                            style: const TextStyle(color: Colors.white54, fontSize: 11.5),
+                          ),
+                          trailing: const Icon(Icons.download_rounded, color: Color(0xFF00E5FF), size: 20),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _startHighQualityVideoDownload(song, q);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showAudioDownloadQualitySheet(SongItem song) async {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF181824),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return FutureBuilder<List<AudioQualityOption>>(
+          future: QualityService.getAudioQualities(song.id),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return Container(
+                padding: const EdgeInsets.all(32),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: Color(0xFFFF2A55)),
+                    SizedBox(height: 16),
+                    Text('Ses kaliteleri taranıyor...', style: TextStyle(color: Colors.white70)),
+                  ],
+                ),
+              );
+            }
+
+            if (snapshot.hasError || !snapshot.hasData || snapshot.data!.isEmpty) {
+              return Container(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF2A55)),
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _downloadOrCacheSong(song, isVideo: false);
+                      },
+                      child: const Text('Standart MP3 Olarak İndir', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            final audioOptions = snapshot.data!;
+            return Container(
+              padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.music_note_rounded, color: Color(0xFFFF2A55), size: 24),
+                          SizedBox(width: 10),
+                          Text(
+                            'Ses Kalitesi Seçin (MP3 / M4A)',
+                            style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                        ],
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white70),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const Divider(color: Colors.white12),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: audioOptions.length,
+                      itemBuilder: (c, idx) {
+                        final a = audioOptions[idx];
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                          leading: const Icon(Icons.audiotrack_rounded, color: Color(0xFFFF2A55)),
+                          title: Text(a.label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          subtitle: Text('Boyut: ~${a.sizeText}', style: const TextStyle(color: Colors.white54, fontSize: 11.5)),
+                          trailing: const Icon(Icons.download_rounded, color: Color(0xFFFF2A55), size: 20),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _downloadOrCacheSong(song, isVideo: false);
+                          },
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showVideoPlayer(String title, String videoPathOrUrl,
+      {bool isLocalFile = false, String? videoId}) {
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.85),
@@ -704,6 +1017,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         title: title,
         source: videoPathOrUrl,
         isLocalFile: isLocalFile,
+        videoId: videoId,
       ),
     );
   }
@@ -917,10 +1231,10 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     onPlaySong: (s) => _playSong(s),
                     onPlayVideoBackground: (s) => _playSong(s, isVideo: true),
                     onWatchVideoOnline: (s) async {
-                      // İndirmeden doğrudan online videoyu izle
+                      // İndirmeden doğrudan online videoyu yüksek kalite seçenekleriyle izle
                       final streamUrl = await _resolveStreamUrl(s.id, isVideo: true);
                       if (streamUrl != null) {
-                        _showVideoPlayer(s.title, streamUrl, isLocalFile: false);
+                        _showVideoPlayer(s.title, streamUrl, isLocalFile: false, videoId: s.id);
                       } else {
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -931,10 +1245,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     },
                     onAddToQueue: _addToQueue,
                     onAddToPlaylist: _showAddToPlaylistDialog,
-                    onDownload: (s) =>
-                        _downloadOrCacheSong(s, isOfflineCache: false),
-                    onDownloadVideo: (s) => _downloadOrCacheSong(s,
-                        isOfflineCache: false, isVideo: true),
+                    onDownload: (s) => _showAudioDownloadQualitySheet(s),
+                    onDownloadVideo: (s) => _showVideoDownloadQualitySheet(s),
                     onCache: (s) =>
                         _downloadOrCacheSong(s, isOfflineCache: true),
                   ),
