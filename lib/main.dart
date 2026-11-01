@@ -411,7 +411,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               streamUrl,
               headers: {
                 'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                    'com.google.android.youtube/19.29.35 (Linux; U; Android 14) gzip',
                 'Accept': '*/*',
                 'Range': 'bytes=0-',
               },
@@ -873,7 +873,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       itemBuilder: (c, idx) {
                         final q = qualities[idx];
                         final isHighRes = q.label.contains('4K') || q.label.contains('2K') || q.label.contains('1080p');
-                        return ListTile(
+                        return Material(
+                          color: Colors.transparent,
+                          child: ListTile(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                           leading: Icon(
                             isHighRes ? Icons.high_quality_rounded : Icons.ondemand_video_rounded,
@@ -895,6 +897,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                             Navigator.pop(ctx);
                             _startHighQualityVideoDownload(song, q);
                           },
+                        ),
                         );
                       },
                     ),
@@ -985,7 +988,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                       itemCount: audioOptions.length,
                       itemBuilder: (c, idx) {
                         final a = audioOptions[idx];
-                        return ListTile(
+                        return Material(
+                          color: Colors.transparent,
+                          child: ListTile(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
                           leading: const Icon(Icons.audiotrack_rounded, color: Color(0xFFFF2A55)),
                           title: Text(a.label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -995,6 +1000,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                             Navigator.pop(ctx);
                             _downloadOrCacheSong(song, isVideo: false);
                           },
+                        ),
                         );
                       },
                     ),
@@ -1064,7 +1070,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                   itemBuilder: (c, idx) {
                     final pl = _playlists[idx];
                     final contains = pl.songs.any((s) => s.id == song.id);
-                    return ListTile(
+                    return Material(
+                      color: Colors.transparent,
+                      child: ListTile(
                       leading: Container(
                         width: 44,
                         height: 44,
@@ -1098,6 +1106,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                         _savePlaylists();
                         Navigator.pop(ctx);
                       },
+                    ),
                     );
                   },
                 ),
@@ -2121,7 +2130,9 @@ class _PlaylistsTab extends StatelessWidget {
                                 itemCount: pl.songs.length,
                                 itemBuilder: (cx, sIdx) {
                                   final song = pl.songs[sIdx];
-                                  return ListTile(
+                                  return Material(
+                                    color: Colors.transparent,
+                                    child: ListTile(
                                     dense: true,
                                     leading: Text('${sIdx + 1}',
                                         style: const TextStyle(
@@ -2136,6 +2147,7 @@ class _PlaylistsTab extends StatelessWidget {
                                         Icons.play_arrow_rounded,
                                         color: Color(0xFF1DB954)),
                                     onTap: () => onPlayPlaylist(pl, sIdx),
+                                  ),
                                   );
                                 },
                               ),
@@ -2321,65 +2333,68 @@ class _DownloadsCacheTab extends StatelessWidget {
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(color: Colors.white10),
                         ),
-                        child: ListTile(
-                          leading: ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: Image.network(
-                              item.thumbnailUrl,
-                              width: 48,
-                              height: 48,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, _, _) => Container(
+                        child: Material(
+                          color: Colors.transparent,
+                          child: ListTile(
+                            leading: ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: Image.network(
+                                item.thumbnailUrl,
                                 width: 48,
                                 height: 48,
-                                color: Colors.grey.shade900,
-                                child: const Icon(Icons.music_note,
-                                    color: Colors.white54),
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => Container(
+                                  width: 48,
+                                  height: 48,
+                                  color: Colors.grey.shade900,
+                                  child: const Icon(Icons.music_note,
+                                      color: Colors.white54),
+                                ),
                               ),
                             ),
-                          ),
-                          title: Text(
-                            item.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style:
-                                const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          subtitle: Text(
-                            '${item.artist} • ${item.format}',
-                            style: const TextStyle(
-                                color: Color(0xFF1DB954), fontSize: 12),
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (item.localFilePath != null)
+                            title: Text(
+                              item.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            subtitle: Text(
+                              ' • ',
+                              style: const TextStyle(
+                                  color: Color(0xFF1DB954), fontSize: 12),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (item.localFilePath != null)
+                                  IconButton(
+                                    icon: const Icon(Icons.open_in_new_rounded,
+                                        color: Color(0xFF00E5FF), size: 22),
+                                    tooltip: 'Telefonun Kendi Oynatıcısında Aç',
+                                    onPressed: () {
+                                      final isVideo = item.format.contains('Video') || item.format.contains('720p');
+                                      openWithSystemPlayer(item.localFilePath!, isVideo: isVideo);
+                                    },
+                                  ),
                                 IconButton(
-                                  icon: const Icon(Icons.open_in_new_rounded,
-                                      color: Color(0xFF00E5FF), size: 22),
-                                  tooltip: 'Telefonun Kendi Oynatıcısında Aç',
-                                  onPressed: () {
-                                    final isVideo = item.format.contains('Video') || item.format.contains('720p');
-                                    openWithSystemPlayer(item.localFilePath!, isVideo: isVideo);
-                                  },
+                                  icon: const Icon(Icons.play_circle_fill,
+                                      color: Color(0xFF1DB954), size: 32),
+                                  onPressed: () => onPlaySong(item),
                                 ),
-                              IconButton(
-                                icon: const Icon(Icons.play_circle_fill,
-                                    color: Color(0xFF1DB954), size: 32),
-                                onPressed: () => onPlaySong(item),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline,
-                                    color: Colors.white38),
-                                onPressed: () => onDeleteSong(item),
-                              ),
-                            ],
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline,
+                                      color: Colors.white38),
+                                  onPressed: () => onDeleteSong(item),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       );
                     },
                   ),
-          )
+          ),
         ],
       ),
     );
@@ -2433,7 +2448,9 @@ class _SpotifyMiniPlayer extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
+            Material(
+              color: Colors.transparent,
+              child: ListTile(
               dense: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 10),
               leading: ClipRRect(
@@ -2495,6 +2512,7 @@ class _SpotifyMiniPlayer extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
             ),
             ClipRRect(
               borderRadius:

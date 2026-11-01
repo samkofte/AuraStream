@@ -146,31 +146,34 @@ class _ModernVideoPlayerDialogState extends State<ModernVideoPlayerDialog> {
                     final q = _availableQualities[idx];
                     final isSelected = _currentQualityLabel == q.label;
                     final isHighRes = q.label.contains('1080p') || q.label.contains('2K') || q.label.contains('4K');
-                    return ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
-                      leading: Icon(
-                        isHighRes ? Icons.high_quality_rounded : Icons.video_settings_rounded,
-                        color: isSelected ? const Color(0xFF00E5FF) : Colors.white38,
-                      ),
-                      title: Text(
-                        q.label,
-                        style: TextStyle(
-                          color: isSelected ? const Color(0xFF00E5FF) : Colors.white,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                          fontSize: 14.5,
+                    return Material(
+                      color: Colors.transparent,
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                        leading: Icon(
+                          isHighRes ? Icons.high_quality_rounded : Icons.video_settings_rounded,
+                          color: isSelected ? const Color(0xFF00E5FF) : Colors.white38,
                         ),
+                        title: Text(
+                          q.label,
+                          style: TextStyle(
+                            color: isSelected ? const Color(0xFF00E5FF) : Colors.white,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            fontSize: 14.5,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'Boyut: ~${q.sizeText} ${q.isMuxed ? '• Doğrudan Akış' : '• Yüksek Çözünürlük'}',
+                          style: const TextStyle(color: Colors.white54, fontSize: 11.5),
+                        ),
+                        trailing: isSelected
+                            ? const Icon(Icons.check_circle_rounded, color: Color(0xFF00E5FF), size: 20)
+                            : null,
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _changeQuality(q);
+                        },
                       ),
-                      subtitle: Text(
-                        'Boyut: ~${q.sizeText} ${q.isMuxed ? '• Doğrudan Akış' : '• Yüksek Çözünürlük'}',
-                        style: const TextStyle(color: Colors.white54, fontSize: 11.5),
-                      ),
-                      trailing: isSelected
-                          ? const Icon(Icons.check_circle_rounded, color: Color(0xFF00E5FF), size: 20)
-                          : null,
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        _changeQuality(q);
-                      },
                     );
                   },
                 ),
