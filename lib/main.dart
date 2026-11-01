@@ -2035,11 +2035,14 @@ class _PlaylistsTab extends StatelessWidget {
                       return Container(
                         margin: const EdgeInsets.only(bottom: 14),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF181820),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: Colors.white10),
                         ),
-                        child: ExpansionTile(
+                        child: Material(
+                          color: const Color(0xFF181820),
+                          borderRadius: BorderRadius.circular(12),
+                          clipBehavior: Clip.antiAlias,
+                          child: ExpansionTile(
                           leading: Container(
                             width: 48,
                             height: 48,
@@ -2153,6 +2156,7 @@ class _PlaylistsTab extends StatelessWidget {
                               ),
                             ]
                           ],
+                          ),
                         ),
                       );
                     },
