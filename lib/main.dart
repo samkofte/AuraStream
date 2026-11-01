@@ -517,6 +517,40 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     } catch (_) {}
   }
 
+
+  Future<io.Directory> _getValidDownloadDirectory() async {
+    // 1. Try public Download folder if writable
+    try {
+      final publicDownload = io.Directory('/storage/emulated/0/Download');
+      if (publicDownload.existsSync()) {
+        final testFile = io.File('/.test_access');
+        await testFile.writeAsString('ok');
+        await testFile.delete();
+        return publicDownload;
+      }
+    } catch (_) {}
+
+    // 2. Try external storage app directory (Download subfolder)
+    try {
+      final extDir = await getExternalStorageDirectory();
+      if (extDir != null) {
+        final appDownloads = io.Directory('/Download');
+        if (!appDownloads.existsSync()) {
+          await appDownloads.create(recursive: true);
+        }
+        return appDownloads;
+      }
+    } catch (_) {}
+
+    // 3. Fallback to application documents directory
+    final docDir = await getApplicationDocumentsDirectory();
+    final docDownloads = io.Directory('${docDir.path}/Download');
+    if (!docDownloads.existsSync()) {
+      await docDownloads.create(recursive: true);
+    }
+    return docDownloads;
+  }
+
   Future<void> _downloadOrCacheSong(SongItem song,
       {bool isOfflineCache = false, bool isVideo = false}) async {
     final notifId = song.id.hashCode.abs() % 100000;
@@ -571,20 +605,21 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             : manifest.audioOnly.withHighestBitrate();
 
         final totalBytes = streamInfo.size.totalBytes;
-        final stream = _ytExplode.videos.streamsClient.get(streamInfo);
-
-        // Doğrudan telefonun erişilebilir Download veya Music klasörü
-        io.Directory dir;
-        final publicDownloadDir = io.Directory('/storage/emulated/0/Download');
-        final publicMusicDir = io.Directory('/storage/emulated/0/Music');
-
-        if (publicDownloadDir.existsSync()) {
-          dir = publicDownloadDir;
-        } else if (publicMusicDir.existsSync()) {
-          dir = publicMusicDir;
-        } else {
-          dir = (await getExternalStorageDirectory()) ?? (await getApplicationDocumentsDirectory());
+        // Use custom http request with Android YouTube client headers to guarantee 200 OK without 403 or throttle
+        final httpClient = http.Client();
+        final req = http.Request('GET', streamInfo.url);
+        req.headers.addAll({
+          'User-Agent': 'com.google.android.youtube/19.29.35 (Linux; U; Android 14) gzip',
+          'Accept': '*/*',
+        });
+        final response = await httpClient.send(req);
+        if (response.statusCode != 200 && response.statusCode != 206) {
+          httpClient.close();
+          throw Exception("Akış bağlantısı reddedildi (HTTP ${response.statusCode})");
         }
+        final stream = response.stream;
+
+        final dir = await _getValidDownloadDirectory();
 
         final sanitizedTitle =
             song.title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
@@ -700,17 +735,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   Future<void> _startHighQualityVideoDownload(SongItem song, VideoQualityOption option) async {
     final notifId = song.id.hashCode.abs() % 100000;
-    io.Directory dir;
-    final publicDownloadDir = io.Directory('/storage/emulated/0/Download');
-    final publicMusicDir = io.Directory('/storage/emulated/0/Music');
-
-    if (publicDownloadDir.existsSync()) {
-      dir = publicDownloadDir;
-    } else if (publicMusicDir.existsSync()) {
-      dir = publicMusicDir;
-    } else {
-      dir = (await getExternalStorageDirectory()) ?? (await getApplicationDocumentsDirectory());
-    }
+    final dir = await _getValidDownloadDirectory();
 
     setState(() {
       _activeDownloadingSongs[song.id] = song;
