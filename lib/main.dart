@@ -42,8 +42,8 @@ Future<void> main() async {
   if (!kIsWeb) {
     try {
       await JustAudioBackground.init(
-        androidNotificationChannelId: 'com.aurastream.music.channel.audio',
-        androidNotificationChannelName: 'AuraStream Müzik & Video Yayını',
+        androidNotificationChannelId: 'com.mytune.music.channel.audio',
+        androidNotificationChannelName: 'MyTune Müzik & Video',
         androidNotificationOngoing: true,
         androidStopForegroundOnPause: true,
       );
@@ -76,16 +76,16 @@ Future<void> main() async {
     }
   }
 
-  runApp(const AuraStreamApp());
+  runApp(const MyTuneApp());
 }
 
-class AuraStreamApp extends StatelessWidget {
-  const AuraStreamApp({super.key});
+class MyTuneApp extends StatelessWidget {
+  const MyTuneApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'AuraStream - Hi-Fi Player',
+      title: 'MyTune - Müzik & Video Çalar',
       debugShowCheckedModeBanner: false,
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color(0xFF0F0F13),
@@ -391,7 +391,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           Uri.file(song.localFilePath!),
           tag: MediaItem(
             id: song.id,
-            album: 'AuraStream Offline',
+            album: 'MyTune Çevrimdışı',
             title: song.title,
             artist: song.artist,
             artUri: Uri.tryParse(song.thumbnailUrl),
@@ -494,7 +494,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       final androidPlatformChannelSpecifics = AndroidNotificationDetails(
         'download_channel',
         'İndirme Takibi',
-        channelDescription: 'AuraStream indirme ilerleme bildirimleri',
+        channelDescription: 'MyTune indirme bildirimleri',
         importance: isFinished ? Importance.high : Importance.low,
         priority: isFinished ? Priority.high : Priority.low,
         onlyAlertOnce: true,
@@ -1614,7 +1614,7 @@ class _SearchTabState extends State<_SearchTab> {
                       ),
                       const SizedBox(width: 10),
                       const Text(
-                        'AuraStream',
+                        'MyTune',
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.w800,
@@ -2691,7 +2691,7 @@ class _SpotifyFullPlayer extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        'AuraStream Hi-Fi Media',
+                        'MyTune Müzik & Video',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 12.5,
