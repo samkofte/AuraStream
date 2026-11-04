@@ -163,7 +163,7 @@ class _ModernVideoPlayerDialogState extends State<ModernVideoPlayerDialog> {
                           ),
                         ),
                         subtitle: Text(
-                          'Boyut: ~${q.sizeText} ${q.isMuxed ? '• Doğrudan Akış' : '• Yüksek Çözünürlük'}',
+                          'Boyut: ~${q.sizeText} • HD Akış',
                           style: const TextStyle(color: Colors.white54, fontSize: 11.5),
                         ),
                         trailing: isSelected

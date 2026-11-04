@@ -10,7 +10,6 @@ import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'ffmpeg_downloader.dart';
 import 'quality_service.dart';
 import 'video_dialog.dart';
 import 'web_downloader.dart';
@@ -736,6 +735,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   Future<void> _startHighQualityVideoDownload(SongItem song, VideoQualityOption option) async {
     final notifId = song.id.hashCode.abs() % 100000;
     final dir = await _getValidDownloadDirectory();
+    final sanitizedTitle = song.title.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').trim();
+    final filePath = '${dir.path}/$sanitizedTitle [${option.label}].mp4';
+    final file = io.File(filePath);
 
     setState(() {
       _activeDownloadingSongs[song.id] = song;
@@ -745,24 +747,46 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     _updateNotificationProgress(notifId, '${song.title} [${option.label}]', 5, 100);
 
     try {
-      final finalPath = await LocalFFmpegDownloader.downloadAndMergeHighQualityVideo(
-        option: option,
-        videoTitle: song.title,
-        outputDirectory: dir,
-        onOverallProgress: (stageText, progress) {
-          if (mounted) {
-            setState(() {
-              _activeDownloadProgress[song.id] = progress;
-            });
-          }
-          final percent = (progress * 100).toInt();
-          _updateNotificationProgress(notifId, '${song.title} [${option.label}]', percent, 100);
-        },
-      );
+      final httpClient = http.Client();
+      final req = http.Request('GET', option.videoStream.url);
+      req.headers.addAll({
+        'User-Agent': 'com.google.android.youtube/19.29.35 (Linux; U; Android 14) gzip',
+        'Accept': '*/*',
+      });
+      final response = await httpClient.send(req);
+      if (response.statusCode != 200 && response.statusCode != 206) {
+        httpClient.close();
+        throw Exception('Akış bağlantısı reddedildi (HTTP ${response.statusCode})');
+      }
 
-      // Notification Payload
+      final totalBytes = option.totalBytes;
+      final output = file.openWrite();
+      int downloaded = 0;
+      int lastReportedPercent = -1;
+
+      await response.stream.listen((chunk) {
+        output.add(chunk);
+        downloaded += chunk.length;
+        if (totalBytes > 0) {
+          final currentPercent = ((downloaded / totalBytes) * 100).toInt();
+          if (currentPercent != lastReportedPercent && currentPercent % 5 == 0) {
+            lastReportedPercent = currentPercent;
+            if (mounted) {
+              setState(() {
+                _activeDownloadProgress[song.id] = downloaded / totalBytes;
+              });
+            }
+            _updateNotificationProgress(notifId, '${song.title} [${option.label}]', currentPercent, 100);
+          }
+        }
+      }).asFuture();
+
+      await output.flush();
+      await output.close();
+      httpClient.close();
+
       final notifPayload = jsonEncode({
-        'path': finalPath,
+        'path': filePath,
         'isVideo': true,
       });
       await _updateNotificationProgress(notifId, '${song.title} [${option.label}]', 100, 100, payload: notifPayload);
@@ -778,8 +802,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         artist: song.artist,
         duration: song.duration,
         thumbnailUrl: song.thumbnailUrl,
-        format: '${option.label} Video (FFmpeg)',
-        localFilePath: finalPath,
+        format: option.label,
+        localFilePath: filePath,
         downloadDate: DateTime.now(),
       );
 
@@ -792,7 +816,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('✓ ${option.label} Video FFmpeg ile birleştirildi ve kaydedildi!'),
+            content: Text('✓ ${option.label} Video indirildi!'),
             backgroundColor: const Color(0xFF1DB954),
           ),
         );
@@ -805,7 +829,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('FFmpeg indirme hatası: $e'),
+            content: Text('İndirme hatası: $e'),
             backgroundColor: Colors.redAccent,
           ),
         );
@@ -879,7 +903,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                           Icon(Icons.video_library_rounded, color: Color(0xFF00E5FF), size: 24),
                           SizedBox(width: 10),
                           Text(
-                            'Video Kalitesi Seçin (FFmpeg)',
+                            'Video Kalitesi Seçin',
                             style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.white),
                           ),
                         ],
@@ -914,7 +938,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                             ),
                           ),
                           subtitle: Text(
-                            'Boyut: ~${q.sizeText} ${q.isMuxed ? "• Hızlı İndir" : "• FFmpeg ile Ses Birleştirilir"}',
+                            'Boyut: ~${q.sizeText} • Hızlı İndir',
                             style: const TextStyle(color: Colors.white54, fontSize: 11.5),
                           ),
                           trailing: const Icon(Icons.download_rounded, color: Color(0xFF00E5FF), size: 20),
@@ -1578,39 +1602,38 @@ class _SearchTabState extends State<_SearchTab> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'AuraStream',
-                    style: TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: -0.5,
-                      color: Colors.white,
-                    ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1DB954).withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.graphic_eq_rounded, color: Color(0xFF1DB954), size: 20),
+                      ),
+                      const SizedBox(width: 10),
+                      const Text(
+                        'AuraStream',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
                   ),
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1DB954).withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border:
-                          Border.all(color: const Color(0xFF1DB954), width: 1),
+                      color: Colors.white.withValues(alpha: 0.06),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white10),
                     ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.music_video_rounded,
-                            color: Color(0xFF1DB954), size: 16),
-                        SizedBox(width: 4),
-                        Text(
-                          'Background Engine',
-                          style: TextStyle(
-                            color: Color(0xFF1DB954),
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
+                    child: const Text(
+                      'Müzik & Video',
+                      style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
                     ),
                   )
                 ],

@@ -2,17 +2,13 @@ import 'dart:async';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 class VideoQualityOption {
-  final String label; // "4K (2160p)", "1440p", "1080p", "720p", "480p", "360p"
+  final String label;
   final VideoStreamInfo videoStream;
-  final AudioStreamInfo? audioStream;
-  final bool isMuxed; // True if it already contains audio (e.g. 360p tag 18)
   final int totalBytes;
 
   VideoQualityOption({
     required this.label,
     required this.videoStream,
-    this.audioStream,
-    required this.isMuxed,
     required this.totalBytes,
   });
 
@@ -26,7 +22,7 @@ class VideoQualityOption {
 }
 
 class AudioQualityOption {
-  final String label; // "Yüksek Kalite (160 kbps)", "Standart (128 kbps)"
+  final String label;
   final AudioStreamInfo audioStream;
   final int totalBytes;
 
@@ -45,65 +41,35 @@ class AudioQualityOption {
 class QualityService {
   static final yt = YoutubeExplode();
 
-  /// Returns sorted list of available video quality options (from 4K down to 360p)
+  /// Doğrudan cihazda çalışan, dönüşüm ve FFmpeg gerektirmeyen hazır video akışları
   static Future<List<VideoQualityOption>> getVideoQualities(String videoId) async {
     final manifest = await yt.videos.streamsClient.getManifest(videoId);
-    final audioStream = manifest.audioOnly.isNotEmpty
-        ? manifest.audioOnly.withHighestBitrate()
-        : null;
+    final List<VideoQualityOption> list = [];
 
-    final Map<String, VideoQualityOption> qualityMap = {};
-
-    // 1. Process adaptive video streams (4K, 1440p, 1080p, 720p, 480p, 360p)
-    final sortedVideo = manifest.videoOnly.sortByVideoQuality();
-    for (final v in sortedVideo) {
-      final res = v.videoResolution.height;
-      String label;
-      if (res >= 2160) {
-        label = '4K Ultra HD (2160p)';
-      } else if (res >= 1440) {
-        label = '2K Quad HD (1440p)';
-      } else if (res >= 1080) {
-        label = 'Full HD (1080p)';
-      } else if (res >= 720) {
-        label = 'HD (720p)';
-      } else if (res >= 480) {
-        label = 'SD (480p)';
-      } else {
-        label = '${res}p';
-      }
-
-      // MP4 container preferred for wider ExoPlayer and FFmpeg compatibility
-      if (!qualityMap.containsKey(label) || v.container.name == 'mp4') {
-        final audioBytes = audioStream?.size.totalBytes ?? 0;
-        qualityMap[label] = VideoQualityOption(
-          label: label,
-          videoStream: v,
-          audioStream: audioStream,
-          isMuxed: false,
-          totalBytes: v.size.totalBytes + audioBytes,
-        );
-      }
-    }
-
-    // 2. Add muxed streams as fallback / quick option
+    // 1. Muxed (Hem ses hem görüntü içeren tek parça saf MP4 akışları - En hızlı ve stabil)
     for (final m in manifest.muxed) {
-      final label = '${m.qualityLabel} (Hızlı İzle)';
-      if (!qualityMap.containsKey(label)) {
-        qualityMap[label] = VideoQualityOption(
-          label: label,
-          videoStream: m,
-          audioStream: null,
-          isMuxed: true,
-          totalBytes: m.size.totalBytes,
-        );
+      list.add(VideoQualityOption(
+        label: '${m.qualityLabel} HD Video',
+        videoStream: m,
+        totalBytes: m.size.totalBytes,
+      ));
+    }
+
+    // 2. Alternatif olarak en yüksek video akışı
+    if (list.isEmpty) {
+      for (final v in manifest.videoOnly.sortByVideoQuality().take(3)) {
+        list.add(VideoQualityOption(
+          label: '${v.videoResolution.height}p Video',
+          videoStream: v,
+          totalBytes: v.size.totalBytes,
+        ));
       }
     }
 
-    return qualityMap.values.toList();
+    return list;
   }
 
-  /// Returns available audio quality options
+  /// Doğrudan YouTube sunucusundaki saf M4A ve AAC ses akışları
   static Future<List<AudioQualityOption>> getAudioQualities(String videoId) async {
     final manifest = await yt.videos.streamsClient.getManifest(videoId);
     final audioList = manifest.audioOnly.toList()
@@ -112,7 +78,7 @@ class QualityService {
     final List<AudioQualityOption> options = [];
     for (final a in audioList) {
       final kbps = a.bitrate.kiloBitsPerSecond.round();
-      final label = '$kbps kbps (${a.container.name.toUpperCase()})';
+      final label = '$kbps kbps (${a.container.name.toUpperCase()} Ses)';
       if (!options.any((o) => o.label.startsWith('$kbps kbps'))) {
         options.add(AudioQualityOption(
           label: label,
